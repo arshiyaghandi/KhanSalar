@@ -1,32 +1,34 @@
-# React + TypeScript + Vite
+# Khansalar Frontend (خوان‌سالار)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Modern, high-performance Single Page Application (SPA) for the Khansalar Enterprise Restaurant ERP & POS System.
 
-Currently, two official plugins are available:
+## Tech Stack
+- **Framework:** React 19 + TypeScript + Vite
+- **Styling:** Tailwind CSS with authentic Persian royal theme palette
+- **Icons:** Lucide React & custom SVG Persian cultural symbols (Shamseh, Boteh Jegheh, Shah Abbasi)
+- **Audio:** Web Audio API synthesized cashier sound effects (zero external audio files)
+- **State & Data:** Unified REST API client with full offline `localStorage` fallback
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Available Functional Modules (Hotkeys)
+- **F1 - Floor Plan (نقشه سالن):** Live tables, status badges, stay duration timer, and QR digital menu stand generator.
+- **F2 - POS & Cashier (سفارش‌گیری):** Rapid menu item selection, modifier notes, and cart management.
+- **F3 - Invoices (صندوق و فاکتورها):** Check settlement, payment processing (Card POS / Cash / Online), split-bill calculator, and thermal receipts.
+- **F4 - Kitchen Display System - KDS (آشپزخانه):** Real-time ticket dispatching to Grill, Hot Kitchen, Traditional Syrups & Bar, and Dessert stations.
+- **F5 - Inventory & Recipe BOM (انبارداری):** Raw material inventory, recipe formulations (BOM), and purchase orders.
+- **F6 - CRM & Loyalty Club (باشگاه مشتریان):** 4-tier customer loyalty program (Bronze, Silver, Gold, Platinum) with points and digital wallet.
+- **F7 - General Ledger (دفتر کل مالی):** GAAP-compliant double-entry accounting and daily cashier closing (Z-report).
+- **F8 - Reservations (رزرواسیون):** VIP and table booking engine, occasion tagging (Birthday, Business, Anniversary, VIP), and deposit management.
+- **F9 - Business Intelligence (هوش تجاری):** BCG / Kasavana & Smith menu engineering matrix, hourly traffic heatmap, and gross margin analysis.
 
-## React Compiler
+## Development Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# Install dependencies
+npm install
 
-## Expanding the Oxlint configuration
+# Start development server
+npm run dev
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+# Build for production
+npm run build
 ```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
