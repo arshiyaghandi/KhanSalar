@@ -57,6 +57,23 @@ CREATE TABLE IF NOT EXISTS order_items (
     notes VARCHAR(255)
 );
 
+-- Reservations and VIP Bookings
+CREATE TABLE IF NOT EXISTS reservations (
+    id BIGSERIAL PRIMARY KEY,
+    customer_name VARCHAR(120) NOT NULL,
+    customer_phone VARCHAR(30) NOT NULL,
+    table_id BIGINT REFERENCES restaurant_tables(id) ON DELETE SET NULL,
+    table_name VARCHAR(100),
+    reservation_date VARCHAR(30) NOT NULL,
+    time_slot VARCHAR(50) NOT NULL,
+    guest_count INT NOT NULL DEFAULT 2,
+    occasion VARCHAR(50) NOT NULL DEFAULT 'GENERAL',
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    deposit_amount DECIMAL(15, 2) DEFAULT 0.00,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Initial seed data
 INSERT INTO restaurant_tables (table_number, title, capacity, status)
 VALUES 
@@ -82,3 +99,9 @@ VALUES
     ('09123334455', 'Sara Mohammadi', 120, 1280000.00),
     ('09198887766', 'Reza Hosseini', 80, 890000.00)
 ON CONFLICT (phone_number) DO NOTHING;
+
+INSERT INTO reservations (customer_name, customer_phone, table_id, table_name, reservation_date, time_slot, guest_count, occasion, status, deposit_amount, notes)
+VALUES
+    ('Dr. Rezaei (VIP)', '09121118899', 4, 'VIP Royal Booth', '1403/08/25', '20:30-22:30', 6, 'VIP_GUEST', 'CONFIRMED', 500000.00, 'VIP banquet setup with saffron welcome tea'),
+    ('Mrs. Tehrani', '09127776655', 1, 'Hafez Table', '1403/08/25', '19:00-21:00', 4, 'BIRTHDAY', 'CONFIRMED', 300000.00, 'Birthday table decoration with baklava platter')
+ON CONFLICT DO NOTHING;

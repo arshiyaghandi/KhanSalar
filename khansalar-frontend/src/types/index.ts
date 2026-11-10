@@ -173,3 +173,89 @@ export interface Customer {
   birthDate?: string;
 }
 
+// Enterprise ERP - Advanced Reservations & Events (Feature 2)
+export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'SEATED' | 'CANCELLED' | 'NO_SHOW';
+export type OccasionType = 'NORMAL' | 'BIRTHDAY' | 'BUSINESS' | 'ANNIVERSARY' | 'VIP';
+
+export interface Reservation {
+  id: number;
+  reservationNumber: string;
+  customerName: string;
+  phoneNumber: string;
+  partySize: number;
+  tableId?: number;
+  tableNumber?: string;
+  reservationTime: string;
+  status: ReservationStatus;
+  occasion: OccasionType;
+  depositAmount: number;
+  depositPaid: boolean;
+  specialRequests?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
+// Enterprise ERP - Menu Engineering & BI Analytics (Feature 4)
+export type MenuClassification = 'STAR' | 'PLOWHORSE' | 'PUZZLE' | 'DOG';
+
+export interface MenuEngineeringItem {
+  menuItemId: number;
+  itemName: string;
+  category: string;
+  unitsSold: number;
+  totalRevenue: number;
+  totalProfit: number;
+  unitFoodCost: number;
+  unitMargin: number;
+  popularityShare: number; // percentage
+  marginShare: number;
+  classification: MenuClassification;
+}
+
+export interface HourlySalesPoint {
+  hour: string;
+  orderCount: number;
+  revenue: number;
+}
+
+export interface CategorySalesPoint {
+  category: string;
+  amount: number;
+  percentage: number;
+}
+
+export interface TopSellingItemPoint {
+  name: string;
+  quantity: number;
+  revenue: number;
+}
+
+export interface BiAnalyticsSummary {
+  totalRevenue: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  grossProfit: number;
+  foodCostPercentage: number;
+  hourlySales: HourlySalesPoint[];
+  salesByCategory: CategorySalesPoint[];
+  topSellingItems: TopSellingItemPoint[];
+}
+
+// Enterprise ERP - Digital Menu & Guest QR Self-Ordering (Feature 1)
+export interface GuestOrderItem {
+  menuItemId: number;
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  notes?: string;
+}
+
+export interface GuestOrderRequest {
+  tableNumber: string;
+  customerName?: string;
+  phoneNumber?: string;
+  notes?: string;
+  items: GuestOrderItem[];
+}
+
+
