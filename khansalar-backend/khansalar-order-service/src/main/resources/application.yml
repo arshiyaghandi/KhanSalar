@@ -1,0 +1,50 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: khansalar-order-service
+  
+  # R2DBC Reactive PostgreSQL
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/khansalar_db
+    username: khansalar_user
+    password: khansalar_password
+    pool:
+      initial-size: 10
+      max-size: 30
+
+  # Automatic schema initialization
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+  # Reactive Redis
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+
+  # Kafka configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: khansalar-order-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.khansalar.common.events,com.khansalar.common.dto"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+
+khansalar:
+  kafka:
+    topics:
+      order-placed: khansalar.order.placed
+      order-paid: khansalar.order.paid

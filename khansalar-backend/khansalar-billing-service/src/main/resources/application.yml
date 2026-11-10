@@ -1,0 +1,51 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: khansalar-billing-service
+
+  # R2DBC Reactive PostgreSQL
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/khansalar_db
+    username: khansalar_user
+    password: khansalar_password
+    pool:
+      initial-size: 10
+      max-size: 30
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: khansalar-billing-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.khansalar.common.events,com.khansalar.common.dto"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+
+khansalar:
+  accounting:
+    tax-rate-percent: 10.0      # Statutory VAT rate percentage
+    service-fee-percent: 5.0    # Restaurant service fee rate percentage
+  kafka:
+    topics:
+      order-placed: khansalar.order.placed
+      order-paid: khansalar.order.paid
+      invoice-generated: khansalar.invoice.generated

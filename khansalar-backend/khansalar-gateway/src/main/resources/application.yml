@@ -1,0 +1,55 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: khansalar-gateway
+
+  cloud:
+    gateway:
+      routes:
+        # Order Service routes (Orders, Tables, Menu, Customers, Kitchen KDS)
+        - id: order-service-routes
+        uri: http://localhost:8081
+        predicates:
+          - Path=/api/v1/orders/**, /api/v1/tables/**, /api/v1/menu/**, /api/v1/customers/**, /api/v1/kitchen/**
+
+        # Billing & Accounting Service routes
+        - id: billing-service-routes
+        uri: http://localhost:8082
+        predicates:
+          - Path=/api/v1/invoices/**, /api/v1/ledger/**
+
+        # Inventory & Recipe BOM Service routes
+        - id: inventory-service-routes
+        uri: http://localhost:8083
+        predicates:
+          - Path=/api/v1/inventory/**
+
+      # Global CORS configuration for React frontend
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:5173"
+              - "http://localhost:3000"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+
+khansalar:
+  jwt:
+    secret: "KhansalarSuperSecretKeyForJwtTokenGenerationAndReactiveSpringSecurity2026!"
+    expiration-ms: 86400000 # 24 hours
