@@ -11,6 +11,11 @@ import type {
   InventoryItem,
   MenuItemRecipeBOM,
   Customer,
+  Reservation,
+  ReservationStatus,
+  BiAnalyticsSummary,
+  MenuEngineeringItem,
+  GuestOrderRequest,
 } from '../types';
 
 const API_BASE_URL = 'http://localhost:8080/api/v1';
@@ -474,6 +479,60 @@ const INITIAL_CUSTOMERS: Customer[] = [
   },
 ];
 
+const INITIAL_RESERVATIONS: Reservation[] = [
+  {
+    id: 1,
+    reservationNumber: 'RES-1403-101',
+    customerName: 'جناب دکتر فرهمند',
+    phoneNumber: '09121112233',
+    partySize: 6,
+    tableId: 5,
+    tableNumber: 'T-05',
+    reservationTime: '1403/08/20 20:30',
+    status: 'CONFIRMED',
+    occasion: 'VIP',
+    depositAmount: 500000,
+    depositPaid: true,
+    specialRequests: 'تخت سنتی کنار حوض، چای زعفرانی بدو ورود آماده باشد',
+    notes: 'مهمان ویژه خوان‌سالار، سرویس تشریفات کامل',
+    createdAt: '1403/08/18 11:30',
+  },
+  {
+    id: 2,
+    reservationNumber: 'RES-1403-102',
+    customerName: 'سرکار خانم مهندس صابری',
+    phoneNumber: '09123334455',
+    partySize: 8,
+    tableId: 4,
+    tableNumber: 'T-04',
+    reservationTime: '1403/08/20 21:00',
+    status: 'CONFIRMED',
+    occasion: 'BIRTHDAY',
+    depositAmount: 1000000,
+    depositPaid: true,
+    specialRequests: 'میز آرایی تولد با شمع و گل سرخ، هماهنگی موسیقی سنتی',
+    notes: 'کیک تولد به همراه پرسنل تحویل گرفته شود',
+    createdAt: '1403/08/19 15:45',
+  },
+  {
+    id: 3,
+    reservationNumber: 'RES-1403-103',
+    customerName: 'جناب مهندس کیانی (شرکت فناوری پارس)',
+    phoneNumber: '09125556677',
+    partySize: 12,
+    tableId: 3,
+    tableNumber: 'T-03',
+    reservationTime: '1403/08/21 13:00',
+    status: 'PENDING',
+    occasion: 'BUSINESS',
+    depositAmount: 0,
+    depositPaid: false,
+    specialRequests: 'جلسه ناهار کاری، نیاز به فضای آرام و سالن مجزا',
+    notes: 'پیش‌فاکتور ارسال شده و منتظر تایید واریز بیعانه',
+    createdAt: '1403/08/20 09:15',
+  },
+];
+
 // In-memory state store with localStorage persistence
 class KhansalarStore {
   tables: RestaurantTable[] = INITIAL_TABLES;
@@ -484,6 +543,7 @@ class KhansalarStore {
   inventory: InventoryItem[] = INITIAL_INVENTORY_ITEMS;
   recipes: MenuItemRecipeBOM[] = INITIAL_RECIPES;
   customers: Customer[] = INITIAL_CUSTOMERS;
+  reservations: Reservation[] = INITIAL_RESERVATIONS;
 
   constructor() {
     const saved = localStorage.getItem('khansalar_local_store_v2');
@@ -497,6 +557,7 @@ class KhansalarStore {
         this.inventory = parsed.inventory || INITIAL_INVENTORY_ITEMS;
         this.recipes = parsed.recipes || INITIAL_RECIPES;
         this.customers = parsed.customers || INITIAL_CUSTOMERS;
+        this.reservations = parsed.reservations || INITIAL_RESERVATIONS;
       } catch (e) {
         console.error('Failed to load store from localStorage', e);
       }
@@ -514,6 +575,7 @@ class KhansalarStore {
         inventory: this.inventory,
         recipes: this.recipes,
         customers: this.customers,
+        reservations: this.reservations,
       })
     );
   }
@@ -948,5 +1010,283 @@ export const api = {
     } catch {}
 
     return customer;
+  },
+
+  // -------------------------------------------------------------
+  // Feature 2: Advanced Reservations & VIP Events
+  // -------------------------------------------------------------
+  async getReservations(): Promise<Reservation[]> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/reservations`);
+      if (res.ok) {
+        const body = await res.json();
+        return body.data || body;
+      }
+    } catch {}
+    return [...store.reservations];
+  },
+
+  async createReservation(resData: Partial<Reservation>): Promise<Reservation> {
+    const newId = Date.now();
+    const reservationNumber = `RES-1403-${Math.floor(100 + Math.random() * 900)}`;
+    const table = store.tables.find((t) => t.id === resData.tableId);
+
+    const reservation: Reservation = {
+      id: newId,
+      reservationNumber,
+      customerName: resData.customerName || 'مهمان خوان‌سالار',
+      phoneNumber: resData.phoneNumber || '',
+      partySize: resData.partySize || 2,
+      tableId: resData.tableId,
+      tableNumber: resData.tableNumber || (table ? table.tableNumber : undefined),
+      reservationTime: resData.reservationTime || '1403/08/20 20:00',
+      status: resData.status || 'CONFIRMED',
+      occasion: resData.occasion || 'NORMAL',
+      depositAmount: resData.depositAmount || 0,
+      depositPaid: resData.depositPaid ?? (resData.depositAmount ? true : false),
+      specialRequests: resData.specialRequests,
+      notes: resData.notes,
+      createdAt: new Date().toISOString(),
+    };
+
+    store.reservations.unshift(reservation);
+    if (table && reservation.status === 'CONFIRMED') {
+      table.status = 'RESERVED';
+    }
+    store.save();
+
+    try {
+      await fetch(`${API_BASE_URL}/reservations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reservation),
+      });
+    } catch {}
+
+    return reservation;
+  },
+
+  async updateReservationStatus(id: number, status: ReservationStatus): Promise<Reservation | null> {
+    const res = store.reservations.find((r) => r.id === id);
+    if (!res) return null;
+    res.status = status;
+
+    if (res.tableId) {
+      const table = store.tables.find((t) => t.id === res.tableId);
+      if (table) {
+        if (status === 'SEATED') {
+          table.status = 'OCCUPIED';
+        } else if (status === 'CANCELLED' || status === 'NO_SHOW') {
+          table.status = 'EMPTY';
+        } else if (status === 'CONFIRMED') {
+          table.status = 'RESERVED';
+        }
+      }
+    }
+    store.save();
+
+    try {
+      await fetch(`${API_BASE_URL}/reservations/${id}/status?status=${status}`, {
+        method: 'PATCH',
+      });
+    } catch {}
+
+    return res;
+  },
+
+  // -------------------------------------------------------------
+  // Feature 4: BI Executive Dashboard & Menu Engineering Matrix
+  // -------------------------------------------------------------
+  async getBiSummary(): Promise<BiAnalyticsSummary> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/analytics/summary`);
+      if (res.ok) {
+        const body = await res.json();
+        return body.data || body;
+      }
+    } catch {}
+
+    const paidInvoices = store.invoices.filter((i) => i.status === 'PAID');
+    const totalRevenue = paidInvoices.reduce((acc, curr) => acc + curr.finalAmount, 0) || 5480000;
+    const totalOrders = paidInvoices.length || 12;
+    const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+    const totalFoodCost = Math.round(totalRevenue * 0.324);
+    const grossProfit = totalRevenue - totalFoodCost;
+
+    return {
+      totalRevenue,
+      totalOrders,
+      averageOrderValue: avgOrderValue,
+      grossProfit,
+      foodCostPercentage: 32.4,
+      hourlySales: [
+        { hour: '۱۲:۰۰', orderCount: 2, revenue: 840000 },
+        { hour: '۱۳:۰۰', orderCount: 5, revenue: 2150000 },
+        { hour: '۱۴:۰۰', orderCount: 4, revenue: 1680000 },
+        { hour: '۱۵:۰۰', orderCount: 1, revenue: 390000 },
+        { hour: '۱۹:۰۰', orderCount: 3, revenue: 1250000 },
+        { hour: '۲۰:۰۰', orderCount: 7, revenue: 3420000 },
+        { hour: '۲۱:۰۰', orderCount: 8, revenue: 4180000 },
+        { hour: '۲۲:۰۰', orderCount: 4, revenue: 1950000 },
+      ],
+      salesByCategory: [
+        { category: 'غذای اصلی و درباری', amount: 9800000, percentage: 62 },
+        { category: 'پیش‌غذا و مزه', amount: 2100000, percentage: 14 },
+        { category: 'نوشیدنی سنتی و شربت‌خانه', amount: 1850000, percentage: 12 },
+        { category: 'دسر و شیرینی‌جات', amount: 1200000, percentage: 8 },
+        { category: 'نوشیدنی گرم و کافه', amount: 650000, percentage: 4 },
+      ],
+      topSellingItems: [
+        { name: 'چلو کباب شاندیز خوان‌سالار', quantity: 18, revenue: 8640000 },
+        { name: 'ته‌چین ویژه مرغ و بادمجان', quantity: 14, revenue: 4760000 },
+        { name: 'کباب برگ گوسفندی اعلا', quantity: 11, revenue: 5720000 },
+        { name: 'دیزی سنگی مخصوص با ترشی', quantity: 9, revenue: 3510000 },
+        { name: 'شربت زعفران و بیدمشک ناب', quantity: 24, revenue: 2040000 },
+      ],
+    };
+  },
+
+  async getMenuEngineering(): Promise<MenuEngineeringItem[]> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/analytics/menu-engineering`);
+      if (res.ok) {
+        const body = await res.json();
+        return body.data || body;
+      }
+    } catch {}
+
+    return [
+      {
+        menuItemId: 1,
+        itemName: 'چلو کباب شاندیز خوان‌سالار',
+        category: 'غذای اصلی و درباری',
+        unitsSold: 42,
+        totalRevenue: 20160000,
+        totalProfit: 12180000,
+        unitFoodCost: 190000,
+        unitMargin: 290000,
+        popularityShare: 24.5,
+        marginShare: 60.4,
+        classification: 'STAR',
+      },
+      {
+        menuItemId: 2,
+        itemName: 'ته‌چین ویژه مرغ و بادمجان',
+        category: 'غذای اصلی و درباری',
+        unitsSold: 35,
+        totalRevenue: 11900000,
+        totalProfit: 7350000,
+        unitFoodCost: 130000,
+        unitMargin: 210000,
+        popularityShare: 20.4,
+        marginShare: 61.7,
+        classification: 'STAR',
+      },
+      {
+        menuItemId: 3,
+        itemName: 'دیزی سنگی مخصوص با ترشی شاه‌عباسی',
+        category: 'غذای اصلی و درباری',
+        unitsSold: 28,
+        totalRevenue: 10920000,
+        totalProfit: 4760000,
+        unitFoodCost: 220000,
+        unitMargin: 170000,
+        popularityShare: 16.3,
+        marginShare: 43.5,
+        classification: 'PLOWHORSE',
+      },
+      {
+        menuItemId: 4,
+        itemName: 'کباب برگ گوسفندی اعلا',
+        category: 'غذای اصلی و درباری',
+        unitsSold: 12,
+        totalRevenue: 6240000,
+        totalProfit: 3960000,
+        unitFoodCost: 190000,
+        unitMargin: 330000,
+        popularityShare: 7.0,
+        marginShare: 63.4,
+        classification: 'PUZZLE',
+      },
+      {
+        menuItemId: 5,
+        itemName: 'شربت زعفران و بیدمشک ناب',
+        category: 'نوشیدنی سنتی و شربت‌خانه',
+        unitsSold: 48,
+        totalRevenue: 4080000,
+        totalProfit: 2880000,
+        unitFoodCost: 25000,
+        unitMargin: 60000,
+        popularityShare: 28.0,
+        marginShare: 70.5,
+        classification: 'STAR',
+      },
+      {
+        menuItemId: 8,
+        itemName: 'باقلوای سنتی تبریز (دو نفره)',
+        category: 'دسر و شیرینی‌جات',
+        unitsSold: 8,
+        totalRevenue: 960000,
+        totalProfit: 320000,
+        unitFoodCost: 80000,
+        unitMargin: 40000,
+        popularityShare: 4.6,
+        marginShare: 33.3,
+        classification: 'DOG',
+      },
+      {
+        menuItemId: 9,
+        itemName: 'ماست و خیار مجلسی با گل سرخ',
+        category: 'پیش‌غذا و مزه',
+        unitsSold: 30,
+        totalRevenue: 1950000,
+        totalProfit: 1200000,
+        unitFoodCost: 25000,
+        unitMargin: 40000,
+        popularityShare: 17.5,
+        marginShare: 61.5,
+        classification: 'PLOWHORSE',
+      },
+    ];
+  },
+
+  // -------------------------------------------------------------
+  // Feature 1: Digital Menu & QR Guest Ordering
+  // -------------------------------------------------------------
+  async placeGuestOrder(orderReq: GuestOrderRequest): Promise<Order> {
+    const table = store.tables.find((t) => t.tableNumber === orderReq.tableNumber) || store.tables[0];
+    const created = await this.createOrder(
+      table.id,
+      orderReq.items.map((item) => ({
+        menuItemId: item.menuItemId,
+        quantity: item.quantity,
+        notes: item.notes,
+      })),
+      `سفارش خودکار مهمان (${orderReq.customerName || 'مهمان سر میز'}) - تماس: ${orderReq.phoneNumber || 'ثبت‌نشده'} - ${orderReq.notes || ''}`
+    );
+
+    try {
+      await fetch(`${API_BASE_URL}/guest/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderReq),
+      });
+    } catch {}
+
+    return created;
+  },
+
+  async callWaiter(tableNumber: string, reason?: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await fetch(`${API_BASE_URL}/guest/call-waiter`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tableNumber, reason }),
+      });
+    } catch {}
+    return {
+      success: true,
+      message: `فراخوان میهماندار برای میز ${tableNumber} با موفقیت در سامانه ثبت شد. میهماندار در اسرع وقت حاضر خواهد شد.`,
+    };
   },
 };

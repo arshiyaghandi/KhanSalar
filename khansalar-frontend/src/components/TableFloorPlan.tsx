@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { RestaurantTable } from '../types';
+import type { RestaurantTable, MenuItem } from '../types';
 import { formatPrice, toPersianDigits } from '../utils/persianUtils';
 import { soundManager } from '../utils/soundEffects';
 import { 
@@ -10,7 +10,8 @@ import {
   Bookmark, 
   Timer, 
   BellRing,
-  Crown
+  Crown,
+  QrCode
 } from 'lucide-react';
 import { CornerArabesque, ShamsehStar } from './GirihOrnament';
 import { 
@@ -19,20 +20,26 @@ import {
   PersianPomegranate, 
   SaffronFlower 
 } from './PersianSymbols';
+import { GuestOrderingModal } from './GuestOrderingModal';
 
 interface TableFloorPlanProps {
   tables: RestaurantTable[];
+  menu?: MenuItem[];
   onSelectTableForOrder: (tableId: number) => void;
   onViewInvoiceForTable: (tableName: string) => void;
+  onOrderPlaced?: () => void;
 }
 
 export const TableFloorPlan: React.FC<TableFloorPlanProps> = ({
   tables,
+  menu = [],
   onSelectTableForOrder,
   onViewInvoiceForTable,
+  onOrderPlaced,
 }) => {
   const [selectedZone, setSelectedZone] = useState<string>('ALL');
   const [waiterCalledTable, setWaiterCalledTable] = useState<string | null>(null);
+  const [selectedQrTable, setSelectedQrTable] = useState<RestaurantTable | null>(null);
 
   const totalCapacity = tables.reduce((acc, t) => acc + t.capacity, 0);
   const occupiedTables = tables.filter((t) => t.status === 'OCCUPIED');
@@ -320,14 +327,14 @@ export const TableFloorPlan: React.FC<TableFloorPlanProps> = ({
               )}
 
               {/* Action Buttons */}
-              <div className="mt-5 flex gap-2.5">
+              <div className="mt-5 flex gap-2">
                 {isOccupied ? (
                   <button
                     onClick={() => {
                       soundManager.playClick();
                       onViewInvoiceForTable(table.title);
                     }}
-                    className="flex-1 py-3 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-khansalar-turquoise to-teal-500 text-slate-950 hover:brightness-110 shadow-turquoise-glow transition flex items-center justify-center gap-2 active:scale-98"
+                    className="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-khansalar-turquoise to-teal-500 text-slate-950 hover:brightness-110 shadow-turquoise-glow transition flex items-center justify-center gap-1.5 active:scale-98"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     مشاهده صورتحساب و تسویه
@@ -338,17 +345,42 @@ export const TableFloorPlan: React.FC<TableFloorPlanProps> = ({
                       soundManager.playClick();
                       onSelectTableForOrder(table.id);
                     }}
-                    className="flex-1 py-3 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-khansalar-gold to-amber-500 text-slate-950 hover:brightness-110 shadow-gold-glow transition flex items-center justify-center gap-2 active:scale-98"
+                    className="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-khansalar-gold to-amber-500 text-slate-950 hover:brightness-110 shadow-gold-glow transition flex items-center justify-center gap-1.5 active:scale-98"
                   >
                     <PlusCircle className="w-4 h-4" />
-                    ثبت سفارش جدید برای این میز
+                    ثبت سفارش جدید
                   </button>
                 )}
+
+                <button
+                  onClick={() => {
+                    soundManager.playClick();
+                    setSelectedQrTable(table);
+                  }}
+                  className="px-3 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-khansalar-gold border border-khansalar-gold/30 hover:border-khansalar-gold transition flex items-center justify-center gap-1 active:scale-95"
+                  title="منوی دیجیتال و QR کد استند میز"
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span className="text-[11px] font-bold hidden sm:inline">QR منو</span>
+                </button>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Guest Ordering & QR Stand Modal */}
+      {selectedQrTable && (
+        <GuestOrderingModal
+          table={selectedQrTable}
+          menu={menu}
+          isOpen={!!selectedQrTable}
+          onClose={() => setSelectedQrTable(null)}
+          onOrderPlaced={() => {
+            if (onOrderPlaced) onOrderPlaced();
+          }}
+        />
+      )}
     </div>
   );
 };

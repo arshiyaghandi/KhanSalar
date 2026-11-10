@@ -7,6 +7,8 @@ import { AccountingLedgerView } from './components/AccountingLedgerView';
 import { KitchenDisplayView } from './components/KitchenDisplayView';
 import { InventoryView } from './components/InventoryView';
 import { CustomersView } from './components/CustomersView';
+import { ReservationView } from './components/ReservationView';
+import { AnalyticsBiView } from './components/AnalyticsBiView';
 import { api } from './services/api';
 import type { RestaurantTable, MenuItem, Invoice, LedgerEntry, DailyClosing } from './types';
 import { soundManager } from './utils/soundEffects';
@@ -25,17 +27,19 @@ export const App: React.FC = () => {
   // ERP Badges
   const [kdsCount, setKdsCount] = useState<number>(0);
   const [lowStockCount, setLowStockCount] = useState<number>(0);
+  const [reservationCount, setReservationCount] = useState<number>(0);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [t, m, inv, led, tickets, inventory] = await Promise.all([
+      const [t, m, inv, led, tickets, inventory, reservations] = await Promise.all([
         api.getTables(),
         api.getMenuItems(),
         api.getInvoices(),
         api.getLedgerEntries(),
         api.getKitchenTickets(),
         api.getInventoryItems(),
+        api.getReservations(),
       ]);
       setTables(t);
       setMenu(m);
@@ -43,6 +47,7 @@ export const App: React.FC = () => {
       setLedgerEntries(led);
       setKdsCount(tickets.length);
       setLowStockCount(inventory.filter((i) => i.currentStock <= i.minimumThreshold).length);
+      setReservationCount(reservations.filter((r) => r.status === 'CONFIRMED' || r.status === 'PENDING').length);
     } finally {
       setIsLoading(false);
     }
@@ -83,9 +88,14 @@ export const App: React.FC = () => {
         e.preventDefault();
         soundManager.playClick();
         setActiveTab('ledger');
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        soundManager.playClick();
+        setActiveTab('reservations');
       } else if (e.key === 'F9') {
         e.preventDefault();
-        window.print();
+        soundManager.playClick();
+        setActiveTab('analytics');
       }
     };
 
@@ -140,6 +150,7 @@ export const App: React.FC = () => {
         unpaidCount={unpaidCount}
         kdsCount={kdsCount}
         lowStockCount={lowStockCount}
+        reservationCount={reservationCount}
         isLoading={isLoading}
         onRefresh={() => {
           soundManager.playClick();
@@ -159,8 +170,10 @@ export const App: React.FC = () => {
             {activeTab === 'tables' && (
               <TableFloorPlan
                 tables={tables}
+                menu={menu}
                 onSelectTableForOrder={handleSelectTableForOrder}
                 onViewInvoiceForTable={handleViewInvoiceForTable}
+                onOrderPlaced={loadData}
               />
             )}
 
@@ -193,6 +206,15 @@ export const App: React.FC = () => {
                 onCloseDay={handleCloseDay}
               />
             )}
+
+            {activeTab === 'reservations' && (
+              <ReservationView
+                tables={tables}
+                onReservationUpdated={loadData}
+              />
+            )}
+
+            {activeTab === 'analytics' && <AnalyticsBiView />}
           </div>
         )}
       </main>

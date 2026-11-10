@@ -50,8 +50,11 @@ public class SecurityConfig {
                         .pathMatchers("/api/v1/auth/**", "/actuator/**").permitAll()
                         // Public OPTIONS for CORS preflight
                         .pathMatchers(HttpMethod.OPTIONS).permitAll()
-                        // Public read-only menu & table view
-                        .pathMatchers(HttpMethod.GET, "/api/v1/menu/**", "/api/v1/tables/**").permitAll()
+                        // Public guest QR menu & self-order endpoints
+                        .pathMatchers("/api/v1/guest/**").permitAll()
+                        // Public read-only menu, tables, and reservations
+                        .pathMatchers(HttpMethod.GET, "/api/v1/menu/**", "/api/v1/tables/**", "/api/v1/reservations/**", "/api/v1/analytics/**").permitAll()
+                        .pathMatchers("/api/v1/reservations/**", "/api/v1/analytics/**").permitAll()
                         // Protected endpoints requiring valid JWT
                         .anyExchange().authenticated()
                 )

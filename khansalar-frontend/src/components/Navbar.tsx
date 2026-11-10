@@ -13,13 +13,15 @@ import {
   Flame,
   Boxes,
   Crown,
-  RefreshCw
+  RefreshCw,
+  CalendarDays,
+  BarChart3
 } from 'lucide-react';
 import { getJalaliDate, getJalaliTime } from '../utils/persianUtils';
 import { soundManager } from '../utils/soundEffects';
 import { BotehJegheh } from './PersianSymbols';
 
-export type NavTabType = 'tables' | 'pos' | 'invoices' | 'kds' | 'inventory' | 'customers' | 'ledger';
+export type NavTabType = 'tables' | 'pos' | 'invoices' | 'kds' | 'inventory' | 'customers' | 'ledger' | 'reservations' | 'analytics';
 
 interface NavbarProps {
   activeTab: NavTabType;
@@ -27,6 +29,7 @@ interface NavbarProps {
   unpaidCount: number;
   kdsCount?: number;
   lowStockCount?: number;
+  reservationCount?: number;
   isLoading?: boolean;
   onRefresh?: () => void;
 }
@@ -41,6 +44,8 @@ const TAB_CONFIG: { id: NavTabType; label: string; shortLabel: string; icon: Rea
   { id: 'inventory', label: 'انبارداری', shortLabel: 'انبار', icon: Boxes, fKey: 'F5' },
   { id: 'customers', label: 'مشتریان', shortLabel: 'CRM', icon: Crown, fKey: 'F6' },
   { id: 'ledger', label: 'دفتر کل', shortLabel: 'مالی', icon: BookOpenCheck, fKey: 'F7' },
+  { id: 'reservations', label: 'رزرواسیون', shortLabel: 'رزرو', icon: CalendarDays, fKey: 'F8' },
+  { id: 'analytics', label: 'هوش تجاری', shortLabel: 'BI', icon: BarChart3, fKey: 'F9' },
 ];
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -49,6 +54,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   unpaidCount,
   kdsCount = 0,
   lowStockCount = 0,
+  reservationCount = 0,
   isLoading = false,
   onRefresh,
 }) => {
@@ -90,6 +96,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (tabId === 'invoices' && unpaidCount > 0) return unpaidCount;
     if (tabId === 'kds' && kdsCount > 0) return kdsCount;
     if (tabId === 'inventory' && lowStockCount > 0) return lowStockCount;
+    if (tabId === 'reservations' && reservationCount > 0) return reservationCount;
     return null;
   };
 
@@ -103,6 +110,9 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
     if (tabId === 'inventory') {
       return isActive ? 'bg-red-600 text-white' : 'bg-red-500/20 text-red-400 border border-red-500/30';
+    }
+    if (tabId === 'reservations') {
+      return isActive ? 'bg-emerald-600 text-white' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
     }
     return '';
   };
