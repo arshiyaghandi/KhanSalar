@@ -3,6 +3,7 @@ package com.khansalar.billing.service;
 import com.khansalar.billing.domain.Invoice;
 import com.khansalar.billing.repository.InvoiceRepository;
 import com.khansalar.common.dto.BiSummaryDto;
+import com.khansalar.common.dto.CategorySalesDto;
 import com.khansalar.common.dto.MenuEngineeringItemDto;
 import com.khansalar.common.enums.InvoiceStatus;
 import com.khansalar.common.enums.MenuClassification;
@@ -54,6 +55,34 @@ public class AnalyticsService {
                     hourlyDensity.put("20:00-22:00", 45); // Peak Royal Dinner
                     hourlyDensity.put("22:00-24:00", 19);
 
+                    final List<CategorySalesDto> categorySales = List.of(
+                            CategorySalesDto.builder()
+                                    .category("Main Dish (غذای اصلی و درباری)")
+                                    .amount(totalRevenue.multiply(BigDecimal.valueOf(0.62)).setScale(2, RoundingMode.HALF_UP))
+                                    .percentage(62.0)
+                                    .build(),
+                            CategorySalesDto.builder()
+                                    .category("Appetizer (پیش‌غذا و مزه)")
+                                    .amount(totalRevenue.multiply(BigDecimal.valueOf(0.14)).setScale(2, RoundingMode.HALF_UP))
+                                    .percentage(14.0)
+                                    .build(),
+                            CategorySalesDto.builder()
+                                    .category("Cold Drink (نوشیدنی سنتی و شربت‌خانه)")
+                                    .amount(totalRevenue.multiply(BigDecimal.valueOf(0.12)).setScale(2, RoundingMode.HALF_UP))
+                                    .percentage(12.0)
+                                    .build(),
+                            CategorySalesDto.builder()
+                                    .category("Dessert (دسر و شیرینی‌جات)")
+                                    .amount(totalRevenue.multiply(BigDecimal.valueOf(0.08)).setScale(2, RoundingMode.HALF_UP))
+                                    .percentage(8.0)
+                                    .build(),
+                            CategorySalesDto.builder()
+                                    .category("Hot Drink (نوشیدنی گرم و کافه)")
+                                    .amount(totalRevenue.multiply(BigDecimal.valueOf(0.04)).setScale(2, RoundingMode.HALF_UP))
+                                    .percentage(4.0)
+                                    .build()
+                    );
+
                     return getMenuEngineering().collectList()
                             .map(items -> {
                                 List<MenuEngineeringItemDto> stars = items.stream()
@@ -72,6 +101,7 @@ public class AnalyticsService {
                                         .peakHoursSlot("20:00-22:00 (Royal Dinner Peak)")
                                         .hourlyOrderDensity(hourlyDensity)
                                         .topStars(stars)
+                                        .salesByCategory(categorySales)
                                         .build();
                             });
                 });

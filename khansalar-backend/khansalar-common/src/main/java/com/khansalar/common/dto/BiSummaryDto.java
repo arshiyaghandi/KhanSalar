@@ -25,4 +25,5 @@ public class BiSummaryDto {
     private String peakHoursSlot;
     private Map<String, Integer> hourlyOrderDensity;
     private List<MenuEngineeringItemDto> topStars;
+    private List<CategorySalesDto> salesByCategory;
 }

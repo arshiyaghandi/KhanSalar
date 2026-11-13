@@ -409,7 +409,7 @@ export const AnalyticsBiView: React.FC = () => {
 
             {/* Visual Bar Columns */}
             <div className="h-52 flex items-end justify-between gap-2 pt-6 pb-2 px-2 border-b border-slate-800">
-              {summary.hourlySales.map((slot) => {
+              {(summary.hourlySales || []).map((slot) => {
                 // max revenue scale ~ 4,500,000
                 const heightPercent = Math.min(100, Math.round((slot.revenue / 4500000) * 100));
                 const isPeak = slot.orderCount >= 6;
@@ -465,7 +465,7 @@ export const AnalyticsBiView: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-              {summary.salesByCategory.map((cat) => (
+              {(summary.salesByCategory || []).map((cat) => (
                 <div key={cat.category} className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-slate-200">{cat.category}</span>

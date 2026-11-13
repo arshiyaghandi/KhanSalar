@@ -135,6 +135,10 @@ export const ReservationView: React.FC<ReservationViewProps> = ({ tables, onRese
       resetForm();
       await loadReservations();
       if (onReservationUpdated) onReservationUpdated();
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'خطا در ثبت رزرواسیون';
+      console.error('Error creating reservation:', err);
+      alert(errorMsg);
     } finally {
       setIsSubmitting(false);
     }

@@ -13,7 +13,11 @@ import type {
   Customer,
   Reservation,
   ReservationStatus,
+  OccasionType,
   BiAnalyticsSummary,
+  HourlySalesPoint,
+  CategorySalesPoint,
+  TopSellingItemPoint,
   MenuEngineeringItem,
   GuestOrderRequest,
 } from '../types';
@@ -583,6 +587,136 @@ class KhansalarStore {
 
 export const store = new KhansalarStore();
 
+// =============================================================
+// Strict Request/Response Adapters for Backend Contract Alignment
+// =============================================================
+
+function mapFrontendOccasionToBackend(occasion?: OccasionType | string): 'GENERAL' | 'BIRTHDAY' | 'ANNIVERSARY' | 'BUSINESS_MEETING' | 'VIP_GUEST' | 'FAMILY_GATHERING' {
+  switch (occasion) {
+    case 'VIP':
+      return 'VIP_GUEST';
+    case 'BUSINESS':
+      return 'BUSINESS_MEETING';
+    case 'BIRTHDAY':
+      return 'BIRTHDAY';
+    case 'ANNIVERSARY':
+      return 'ANNIVERSARY';
+    case 'NORMAL':
+    default:
+      return 'GENERAL';
+  }
+}
+
+function mapBackendOccasionToFrontend(occasion?: string): OccasionType {
+  switch (occasion) {
+    case 'VIP_GUEST':
+    case 'VIP':
+      return 'VIP';
+    case 'BUSINESS_MEETING':
+    case 'BUSINESS':
+      return 'BUSINESS';
+    case 'BIRTHDAY':
+      return 'BIRTHDAY';
+    case 'ANNIVERSARY':
+      return 'ANNIVERSARY';
+    case 'GENERAL':
+    case 'FAMILY_GATHERING':
+    case 'NORMAL':
+    default:
+      return 'NORMAL';
+  }
+}
+
+function mapBackendReservationToFrontend(dto: any): Reservation {
+  const table = store.tables.find((t) => t.id === dto.tableId);
+  const timeSlot = dto.timeSlot || '';
+  const reservationDate = dto.reservationDate || '';
+  const reservationTime = dto.reservationTime || (reservationDate && timeSlot ? `${reservationDate} ${timeSlot}` : (reservationDate || timeSlot || '1403/08/20 20:00'));
+
+  return {
+    id: Number(dto.id) || Date.now(),
+    reservationNumber: dto.reservationNumber || `RES-1403-${dto.id || Math.floor(100 + Math.random() * 900)}`,
+    customerName: dto.customerName || 'مهمان خوان‌سالار',
+    phoneNumber: dto.customerPhone || dto.phoneNumber || '',
+    partySize: Number(dto.guestCount ?? dto.partySize) || 2,
+    tableId: dto.tableId ? Number(dto.tableId) : undefined,
+    tableNumber: dto.tableNumber || (table ? table.tableNumber : (dto.tableName || undefined)),
+    reservationTime,
+    status: dto.status || 'CONFIRMED',
+    occasion: mapBackendOccasionToFrontend(dto.occasion),
+    depositAmount: Number(dto.depositAmount) || 0,
+    depositPaid: dto.depositPaid ?? (Number(dto.depositAmount) > 0),
+    specialRequests: dto.specialRequests,
+    notes: dto.notes,
+    createdAt: dto.createdAt || new Date().toISOString(),
+  };
+}
+
+function mapBackendBiSummaryToFrontend(raw: any): BiAnalyticsSummary {
+  const totalRevenue = Number(raw.totalRevenue) || 0;
+  const totalOrders = Number(raw.totalOrders ?? raw.totalOrdersCount) || 0;
+  const averageOrderValue = Number(raw.averageOrderValue ?? raw.averageTicketSize) || 0;
+  const grossProfit = Number(raw.grossProfit) || 0;
+  const foodCostPercentage = Number(raw.foodCostPercentage) || 0;
+
+  // Map hourlySales from array or from hourlyOrderDensity Map
+  let hourlySales: HourlySalesPoint[] = [];
+  if (Array.isArray(raw.hourlySales) && raw.hourlySales.length > 0) {
+    hourlySales = raw.hourlySales.map((h: any) => ({
+      hour: String(h?.hour || ''),
+      orderCount: Number(h?.orderCount) || 0,
+      revenue: Number(h?.revenue) || 0,
+    }));
+  } else if (raw.hourlyOrderDensity && typeof raw.hourlyOrderDensity === 'object') {
+    hourlySales = Object.entries(raw.hourlyOrderDensity).map(([hour, count]) => {
+      const orderCount = Number(count) || 0;
+      const unitVal = averageOrderValue > 0 ? averageOrderValue : (totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 150000);
+      return {
+        hour,
+        orderCount,
+        revenue: Math.round(orderCount * unitVal),
+      };
+    });
+  }
+
+  // Map salesByCategory from array
+  let salesByCategory: CategorySalesPoint[] = [];
+  if (Array.isArray(raw.salesByCategory) && raw.salesByCategory.length > 0) {
+    salesByCategory = raw.salesByCategory.map((c: any) => ({
+      category: String(c?.category || ''),
+      amount: Number(c?.amount) || 0,
+      percentage: Number(c?.percentage) || 0,
+    }));
+  }
+
+  // Map topSellingItems from topSellingItems or topStars
+  let topSellingItems: TopSellingItemPoint[] = [];
+  if (Array.isArray(raw.topSellingItems) && raw.topSellingItems.length > 0) {
+    topSellingItems = raw.topSellingItems.map((item: any) => ({
+      name: String(item?.name || ''),
+      quantity: Number(item?.quantity) || 0,
+      revenue: Number(item?.revenue) || 0,
+    }));
+  } else if (Array.isArray(raw.topStars) && raw.topStars.length > 0) {
+    topSellingItems = raw.topStars.map((star: any) => ({
+      name: String(star?.itemName || ''),
+      quantity: Number(star?.unitsSold) || 0,
+      revenue: Number(star?.totalRevenue) || 0,
+    }));
+  }
+
+  return {
+    totalRevenue,
+    totalOrders,
+    averageOrderValue,
+    grossProfit,
+    foodCostPercentage,
+    hourlySales,
+    salesByCategory,
+    topSellingItems,
+  };
+}
+
 export const api = {
   // Tables
   async getTables(): Promise<RestaurantTable[]> {
@@ -1020,9 +1154,14 @@ export const api = {
       const res = await fetch(`${API_BASE_URL}/reservations`);
       if (res.ok) {
         const body = await res.json();
-        return body.data || body;
+        const list = Array.isArray(body) ? body : (body?.data || []);
+        if (Array.isArray(list) && list.length > 0) {
+          return list.map(mapBackendReservationToFrontend);
+        }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Could not fetch reservations from backend API, using local store:', err);
+    }
     return [...store.reservations];
   },
 
@@ -1049,19 +1188,72 @@ export const api = {
       createdAt: new Date().toISOString(),
     };
 
+    // Extract reservationDate and timeSlot from reservationTime
+    let reservationDate = '1403/08/20';
+    let timeSlot = '20:00-22:00';
+    if (reservation.reservationTime) {
+      const trimmed = reservation.reservationTime.trim();
+      const parts = trimmed.split(/\s+/);
+      if (parts.length >= 2) {
+        reservationDate = parts[0];
+        timeSlot = parts.slice(1).join(' ');
+      } else if (trimmed.includes('/') || trimmed.includes('-')) {
+        reservationDate = trimmed;
+      } else if (trimmed.includes(':')) {
+        timeSlot = trimmed;
+      }
+    }
+
+    const notesList: string[] = [];
+    if (reservation.notes) notesList.push(reservation.notes);
+    if (reservation.specialRequests) notesList.push(`درخواست ویژه: ${reservation.specialRequests}`);
+
+    // Strictly map to backend ReservationDto contract
+    const backendPayload = {
+      customerName: reservation.customerName,
+      customerPhone: reservation.phoneNumber,
+      tableId: reservation.tableId,
+      tableName: table ? table.title : (reservation.tableNumber || undefined),
+      reservationDate,
+      timeSlot,
+      guestCount: reservation.partySize,
+      occasion: mapFrontendOccasionToBackend(reservation.occasion),
+      status: reservation.status,
+      depositAmount: reservation.depositAmount,
+      notes: notesList.join(' | ') || undefined,
+    };
+
+    const res = await fetch(`${API_BASE_URL}/reservations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backendPayload),
+    });
+
+    if (!res.ok) {
+      let errorMessage = `Failed to create reservation (HTTP ${res.status}: ${res.statusText})`;
+      try {
+        const errorData = await res.json();
+        if (errorData?.message) {
+          errorMessage = errorData.message;
+        }
+      } catch {}
+      console.error('Reservation creation rejected by backend:', errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    try {
+      const body = await res.json();
+      const savedDto = body?.data || body;
+      if (savedDto && savedDto.id) {
+        reservation.id = savedDto.id;
+      }
+    } catch {}
+
     store.reservations.unshift(reservation);
     if (table && reservation.status === 'CONFIRMED') {
       table.status = 'RESERVED';
     }
     store.save();
-
-    try {
-      await fetch(`${API_BASE_URL}/reservations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reservation),
-      });
-    } catch {}
 
     return reservation;
   },
@@ -1086,10 +1278,15 @@ export const api = {
     store.save();
 
     try {
-      await fetch(`${API_BASE_URL}/reservations/${id}/status?status=${status}`, {
+      const resp = await fetch(`${API_BASE_URL}/reservations/${id}/status?status=${status}`, {
         method: 'PATCH',
       });
-    } catch {}
+      if (!resp.ok) {
+        console.error(`Failed to update reservation status: HTTP ${resp.status}`);
+      }
+    } catch (err) {
+      console.warn('Could not sync reservation status to backend:', err);
+    }
 
     return res;
   },
@@ -1102,9 +1299,14 @@ export const api = {
       const res = await fetch(`${API_BASE_URL}/analytics/summary`);
       if (res.ok) {
         const body = await res.json();
-        return body.data || body;
+        const raw = body?.data || body;
+        if (raw && typeof raw === 'object') {
+          return mapBackendBiSummaryToFrontend(raw);
+        }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Could not fetch BI summary from backend API, using local fallback:', err);
+    }
 
     const paidInvoices = store.invoices.filter((i) => i.status === 'PAID');
     const totalRevenue = paidInvoices.reduce((acc, curr) => acc + curr.finalAmount, 0) || 5480000;
