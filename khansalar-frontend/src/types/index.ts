@@ -258,4 +258,19 @@ export interface GuestOrderRequest {
   items: GuestOrderItem[];
 }
 
+// Enterprise ERP - Authentication & Gateway Health
+export interface AuthUser {
+  token: string;
+  username: string;
+  fullName: string;
+  roles: string[];
+}
+
+export interface BackendStatus {
+  isOnline: boolean;
+  gatewayUrl: string;
+  user: AuthUser | null;
+  error?: string;
+}
+
 

@@ -20,6 +20,7 @@ import {
 import { getJalaliDate, getJalaliTime } from '../utils/persianUtils';
 import { soundManager } from '../utils/soundEffects';
 import { BotehJegheh } from './PersianSymbols';
+import type { BackendStatus } from '../types';
 
 export type NavTabType = 'tables' | 'pos' | 'invoices' | 'kds' | 'inventory' | 'customers' | 'ledger' | 'reservations' | 'analytics';
 
@@ -32,6 +33,8 @@ interface NavbarProps {
   reservationCount?: number;
   isLoading?: boolean;
   onRefresh?: () => void;
+  backendStatus?: BackendStatus | null;
+  onOpenLogin?: () => void;
 }
 
 export type PersianTheme = 'lapis' | 'turquoise' | 'ruby';
@@ -57,6 +60,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   reservationCount = 0,
   isLoading = false,
   onRefresh,
+  backendStatus,
+  onOpenLogin,
 }) => {
   const [time, setTime] = useState<string>(getJalaliTime());
   const [date] = useState<string>(getJalaliDate());
@@ -237,22 +242,44 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Keyboard className="w-3.5 h-3.5" />
             </button>
 
-            {/* User Chip - compact */}
-            <div className="flex items-center gap-2 pr-2 border-r border-slate-800">
+            {/* Server Connection Status Pill */}
+            <button
+              onClick={onOpenLogin}
+              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition ${
+                backendStatus?.isOnline
+                  ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
+                  : 'bg-amber-950/60 border-amber-500/50 text-amber-300 hover:bg-amber-900/60'
+              }`}
+              title="مشاهده وضعیت اتصال به سرور ابری Gateway و احراز هویت"
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  backendStatus?.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                }`}
+              ></span>
+              <span>{backendStatus?.isOnline ? 'بکند آنلاین (8080)' : 'حالت آفلاین'}</span>
+            </button>
+
+            {/* User Chip - clickable for login/profile */}
+            <button
+              onClick={onOpenLogin}
+              className="flex items-center gap-2 pr-2 border-r border-slate-800 hover:opacity-90 transition text-right group"
+              title="تغییر کاربر یا احراز هویت با JWT"
+            >
               <div className="hidden sm:block text-left">
-                <div className="flex items-center justify-end gap-1 text-[11px] font-bold text-slate-200">
+                <div className="flex items-center justify-end gap-1 text-[11px] font-bold text-slate-200 group-hover:text-amber-300 transition">
                   <ShieldCheck className="w-3.5 h-3.5 text-khansalar-gold" />
-                  <span>مدیر ارشد</span>
+                  <span>{backendStatus?.user?.fullName || 'مدیر سیستم'}</span>
                 </div>
                 <span className="text-[10px] text-emerald-400 font-medium flex items-center justify-end gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  شیفت فعال
+                  {backendStatus?.user?.username ? `@${backendStatus.user.username}` : 'شیفت فعال'}
                 </span>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-khansalar-gold/30 to-khansalar-surface border border-khansalar-gold/50 flex items-center justify-center font-bold text-khansalar-gold text-sm shadow-sm">
-                خ
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-khansalar-gold/30 to-khansalar-surface border border-khansalar-gold/50 flex items-center justify-center font-bold text-khansalar-gold text-sm shadow-sm group-hover:border-amber-400 transition">
+                {backendStatus?.user?.fullName ? backendStatus.user.fullName[0] : 'خ'}
               </div>
-            </div>
+            </button>
           </div>
         </div>
 

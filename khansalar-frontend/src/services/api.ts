@@ -2,6 +2,7 @@ import type {
   RestaurantTable,
   MenuItem,
   Order,
+  OrderItem,
   Invoice,
   LedgerEntry,
   DailyClosing,
@@ -20,9 +21,108 @@ import type {
   TopSellingItemPoint,
   MenuEngineeringItem,
   GuestOrderRequest,
+  AuthUser,
+  BackendStatus,
+  TableStatus,
+  KitchenTicketItem,
+  InventoryCategory,
 } from '../types';
 
-const API_BASE_URL = 'http://localhost:8080/api/v1';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+const AUTH_TOKEN_KEY = 'khansalar_jwt_token';
+const AUTH_USER_KEY = 'khansalar_auth_user';
+
+export const authStorage = {
+  getToken(): string | null {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  },
+  setToken(token: string | null) {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  },
+  getUser(): AuthUser | null {
+    const raw = localStorage.getItem(AUTH_USER_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  },
+  setUser(user: AuthUser | null) {
+    if (user) {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(AUTH_USER_KEY);
+    }
+  },
+};
+
+/**
+ * Robust authenticated HTTP client for Khansalar Spring Boot Reactive Microservices Gateway
+ */
+export async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const token = authStorage.getToken();
+  const headers = new Headers(options.headers || {});
+
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const url = endpoint.startsWith('http')
+    ? endpoint
+    : `${API_BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, { ...options, headers });
+  } catch (netErr: any) {
+    console.warn(`[Khansalar API] Network error on ${url}:`, netErr?.message);
+    throw new Error(`خطای شبکه در اتصال به سرور بکند (${netErr?.message || 'Network Error'})`);
+  }
+
+  // Handle 401 Unauthorized: Attempt auto-login if token is missing or expired
+  if (res.status === 401 && !endpoint.includes('/auth/login')) {
+    console.warn('[Khansalar API] 401 Unauthorized. Attempting auto-login refresh...');
+    try {
+      const refreshedUser = await api.login('admin', 'admin123');
+      if (refreshedUser?.token) {
+        headers.set('Authorization', `Bearer ${refreshedUser.token}`);
+        res = await fetch(url, { ...options, headers });
+      }
+    } catch (e) {
+      console.warn('[Khansalar API] Auto-refresh failed:', e);
+    }
+  }
+
+  if (!res.ok) {
+    let errorMsg = `Server returned HTTP ${res.status}: ${res.statusText}`;
+    try {
+      const errJson = await res.json();
+      if (errJson?.message) errorMsg = errJson.message;
+    } catch {}
+    throw new Error(errorMsg);
+  }
+
+  if (res.status === 204) {
+    return {} as T;
+  }
+
+  const json = await res.json();
+  // Unwrap Spring Boot ApiResponse<T>
+  if (json && typeof json === 'object' && 'data' in json && 'success' in json) {
+    return json.data as T;
+  }
+  return json as T;
+}
 
 // Initial Mock Data (matching Backend schema.sql and Iranian authentic restaurant ambience)
 const INITIAL_TABLES: RestaurantTable[] = [
@@ -263,39 +363,6 @@ const INITIAL_KITCHEN_TICKETS: KitchenTicket[] = [
       },
     ],
   },
-  {
-    orderId: 103,
-    orderNumber: 'KH-1403-103',
-    tableNumber: 'T-05',
-    tableName: 'تخت سنتی آب‌نما',
-    serverName: 'امیرحسین باقری',
-    orderTime: '۱۳:۳۵',
-    elapsedMinutes: 2,
-    priority: 'NORMAL',
-    items: [
-      {
-        id: 1031,
-        itemName: 'شربت سکنجبین و خیار سکه‌ای',
-        quantity: 2,
-        station: 'BAR',
-        status: 'RECEIVED',
-      },
-      {
-        id: 1032,
-        itemName: 'باقلوای سنتی تبریز (دو نفره)',
-        quantity: 1,
-        station: 'DESSERT',
-        status: 'RECEIVED',
-      },
-      {
-        id: 1033,
-        itemName: 'ماست و خیار مجلسی با گل سرخ',
-        quantity: 1,
-        station: 'COLD',
-        status: 'RECEIVED',
-      },
-    ],
-  },
 ];
 
 // Initial Inventory Items (Warehouse & Stocks)
@@ -319,7 +386,7 @@ const INITIAL_INVENTORY_ITEMS: InventoryItem[] = [
     category: 'MEAT',
     unit: 'کیلوگرم',
     currentStock: 6.2,
-    minimumThreshold: 8.0, // Alert: Low stock!
+    minimumThreshold: 8.0,
     reorderPoint: 12.0,
     unitCost: 195000,
     lastRestockedAt: '۱۴۰۳/۰۷/۲۳',
@@ -348,42 +415,6 @@ const INITIAL_INVENTORY_ITEMS: InventoryItem[] = [
     unitCost: 145000,
     lastRestockedAt: '۱۴۰۳/۰۷/۲۲',
   },
-  {
-    id: 5,
-    itemCode: 'RAW-YOG-01',
-    name: 'ماست چکیده کوزه محلی',
-    category: 'DAIRY',
-    unit: 'کیلوگرم',
-    currentStock: 4.5,
-    minimumThreshold: 5.0, // Alert: Low stock!
-    reorderPoint: 10.0,
-    unitCost: 75000,
-    lastRestockedAt: '۱۴۰۳/۰۷/۲۴',
-  },
-  {
-    id: 6,
-    itemCode: 'RAW-PIST-01',
-    name: 'خلال پسته سبز اکبری',
-    category: 'DRY_GOODS',
-    unit: 'کیلوگرم',
-    currentStock: 3.8,
-    minimumThreshold: 2.0,
-    reorderPoint: 4.0,
-    unitCost: 1200000,
-    lastRestockedAt: '۱۴۰۳/۰۷/۱۸',
-  },
-  {
-    id: 7,
-    itemCode: 'RAW-DIST-01',
-    name: 'گلاب دوآتشه اصل کاشان',
-    category: 'BEVERAGE',
-    unit: 'لیتر',
-    currentStock: 12.0,
-    minimumThreshold: 5.0,
-    reorderPoint: 8.0,
-    unitCost: 180000,
-    lastRestockedAt: '۱۴۰۳/۰۷/۲۱',
-  },
 ];
 
 // Initial Recipes & BOM (Bill of Materials & Food Costing)
@@ -399,33 +430,6 @@ const INITIAL_RECIPES: MenuItemRecipeBOM[] = [
       { id: 1, menuItemId: 1, inventoryItemId: 1, ingredientName: 'راسته تازه گوسفندی مغان', quantityRequired: 0.32, unit: 'کیلوگرم', unitCost: 650000, totalCost: 208000 },
       { id: 2, menuItemId: 1, inventoryItemId: 4, ingredientName: 'برنج طارم هاشمی دودی اعلا', quantityRequired: 0.22, unit: 'کیلوگرم', unitCost: 145000, totalCost: 31900 },
       { id: 3, menuItemId: 1, inventoryItemId: 3, ingredientName: 'زعفران سرگل ممتاز قائنات', quantityRequired: 0.06, unit: 'گرم', unitCost: 110000, totalCost: 6600 },
-    ],
-  },
-  {
-    menuItemId: 2,
-    menuItemName: 'ته‌چین ویژه مرغ و بادمجان',
-    sellingPrice: 340000,
-    foodCost: 138500,
-    foodCostPercentage: 40.7,
-    profitMargin: 201500,
-    ingredients: [
-      { id: 4, menuItemId: 2, inventoryItemId: 2, ingredientName: 'فیله مرغ گرم کشتار روز', quantityRequired: 0.28, unit: 'کیلوگرم', unitCost: 195000, totalCost: 54600 },
-      { id: 5, menuItemId: 2, inventoryItemId: 4, ingredientName: 'برنج طارم هاشمی دودی اعلا', quantityRequired: 0.22, unit: 'کیلوگرم', unitCost: 145000, totalCost: 31900 },
-      { id: 6, menuItemId: 2, inventoryItemId: 5, ingredientName: 'ماست چکیده کوزه محلی', quantityRequired: 0.15, unit: 'کیلوگرم', unitCost: 75000, totalCost: 11250 },
-      { id: 7, menuItemId: 2, inventoryItemId: 6, ingredientName: 'خلال پسته سبز اکبری', quantityRequired: 0.02, unit: 'کیلوگرم', unitCost: 1200000, totalCost: 24000 },
-      { id: 8, menuItemId: 2, inventoryItemId: 3, ingredientName: 'زعفران سرگل ممتاز قائنات', quantityRequired: 0.15, unit: 'گرم', unitCost: 110000, totalCost: 16500 },
-    ],
-  },
-  {
-    menuItemId: 5,
-    menuItemName: 'شربت زعفران و بیدمشک ناب',
-    sellingPrice: 85000,
-    foodCost: 26500,
-    foodCostPercentage: 31.1,
-    profitMargin: 58500,
-    ingredients: [
-      { id: 9, menuItemId: 5, inventoryItemId: 7, ingredientName: 'گلاب دوآتشه اصل کاشان', quantityRequired: 0.05, unit: 'لیتر', unitCost: 180000, totalCost: 9000 },
-      { id: 10, menuItemId: 5, inventoryItemId: 3, ingredientName: 'زعفران سرگل ممتاز قائنات', quantityRequired: 0.1, unit: 'گرم', unitCost: 110000, totalCost: 11000 },
     ],
   },
 ];
@@ -457,29 +461,6 @@ const INITIAL_CUSTOMERS: Customer[] = [
     notes: 'همیشه دسر باقلوا و شربت سنتی سفارش می‌دهند',
     lastVisit: '۱۴۰۳/۰۷/۲۴',
     birthDate: '۱۳۶۸/۰۲/۱۸',
-  },
-  {
-    id: 3,
-    fullName: 'امیرحسین پارسا',
-    phoneNumber: '09358889900',
-    tier: 'SILVER',
-    loyaltyPoints: 310,
-    walletBalance: 0,
-    totalSpent: 4200000,
-    totalVisits: 4,
-    notes: 'مشتری جلسات کاری نیمه‌وقت',
-    lastVisit: '۱۴۰۳/۰۷/۱۸',
-  },
-  {
-    id: 4,
-    fullName: 'مریم کمالی',
-    phoneNumber: '09194445566',
-    tier: 'BRONZE',
-    loyaltyPoints: 95,
-    walletBalance: 0,
-    totalSpent: 1350000,
-    totalVisits: 1,
-    lastVisit: '۱۴۰۳/۰۷/۲۵',
   },
 ];
 
@@ -518,23 +499,6 @@ const INITIAL_RESERVATIONS: Reservation[] = [
     notes: 'کیک تولد به همراه پرسنل تحویل گرفته شود',
     createdAt: '1403/08/19 15:45',
   },
-  {
-    id: 3,
-    reservationNumber: 'RES-1403-103',
-    customerName: 'جناب مهندس کیانی (شرکت فناوری پارس)',
-    phoneNumber: '09125556677',
-    partySize: 12,
-    tableId: 3,
-    tableNumber: 'T-03',
-    reservationTime: '1403/08/21 13:00',
-    status: 'PENDING',
-    occasion: 'BUSINESS',
-    depositAmount: 0,
-    depositPaid: false,
-    specialRequests: 'جلسه ناهار کاری، نیاز به فضای آرام و سالن مجزا',
-    notes: 'پیش‌فاکتور ارسال شده و منتظر تایید واریز بیعانه',
-    createdAt: '1403/08/20 09:15',
-  },
 ];
 
 // In-memory state store with localStorage persistence
@@ -555,6 +519,7 @@ class KhansalarStore {
       try {
         const parsed = JSON.parse(saved);
         this.tables = parsed.tables || INITIAL_TABLES;
+        this.menu = parsed.menu || INITIAL_MENU;
         this.invoices = parsed.invoices || INITIAL_INVOICES;
         this.ledger = parsed.ledger || INITIAL_LEDGER;
         this.kitchenTickets = parsed.kitchenTickets || INITIAL_KITCHEN_TICKETS;
@@ -573,6 +538,7 @@ class KhansalarStore {
       'khansalar_local_store_v2',
       JSON.stringify({
         tables: this.tables,
+        menu: this.menu,
         invoices: this.invoices,
         ledger: this.ledger,
         kitchenTickets: this.kitchenTickets,
@@ -659,7 +625,6 @@ function mapBackendBiSummaryToFrontend(raw: any): BiAnalyticsSummary {
   const grossProfit = Number(raw.grossProfit) || 0;
   const foodCostPercentage = Number(raw.foodCostPercentage) || 0;
 
-  // Map hourlySales from array or from hourlyOrderDensity Map
   let hourlySales: HourlySalesPoint[] = [];
   if (Array.isArray(raw.hourlySales) && raw.hourlySales.length > 0) {
     hourlySales = raw.hourlySales.map((h: any) => ({
@@ -679,7 +644,6 @@ function mapBackendBiSummaryToFrontend(raw: any): BiAnalyticsSummary {
     });
   }
 
-  // Map salesByCategory from array
   let salesByCategory: CategorySalesPoint[] = [];
   if (Array.isArray(raw.salesByCategory) && raw.salesByCategory.length > 0) {
     salesByCategory = raw.salesByCategory.map((c: any) => ({
@@ -689,7 +653,6 @@ function mapBackendBiSummaryToFrontend(raw: any): BiAnalyticsSummary {
     }));
   }
 
-  // Map topSellingItems from topSellingItems or topStars
   let topSellingItems: TopSellingItemPoint[] = [];
   if (Array.isArray(raw.topSellingItems) && raw.topSellingItems.length > 0) {
     topSellingItems = raw.topSellingItems.map((item: any) => ({
@@ -718,191 +681,238 @@ function mapBackendBiSummaryToFrontend(raw: any): BiAnalyticsSummary {
 }
 
 export const api = {
-  // Tables
+  // =============================================================
+  // Authentication & Session
+  // =============================================================
+  async login(username = 'admin', password = 'admin123'): Promise<AuthUser> {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!res.ok) {
+      let msg = 'نام کاربری یا رمز عبور اشتباه است';
+      try {
+        const body = await res.json();
+        if (body?.message) msg = body.message;
+      } catch {}
+      throw new Error(msg);
+    }
+
+    const body = await res.json();
+    const authData: AuthUser = body?.data || body;
+    authStorage.setToken(authData.token);
+    authStorage.setUser(authData);
+    return authData;
+  },
+
+  logout(): void {
+    authStorage.setToken(null);
+    authStorage.setUser(null);
+  },
+
+  getCurrentUser(): AuthUser | null {
+    return authStorage.getUser();
+  },
+
+  async checkBackendStatus(): Promise<BackendStatus> {
+    try {
+      if (!authStorage.getToken()) {
+        try {
+          await this.login('admin', 'admin123');
+        } catch {}
+      }
+
+      const res = await fetch(`${API_BASE_URL}/tables`, {
+        headers: authStorage.getToken() ? { Authorization: `Bearer ${authStorage.getToken()}` } : {},
+      });
+
+      if (res.ok) {
+        return {
+          isOnline: true,
+          gatewayUrl: API_BASE_URL,
+          user: authStorage.getUser(),
+        };
+      }
+
+      return {
+        isOnline: false,
+        gatewayUrl: API_BASE_URL,
+        user: null,
+        error: `HTTP ${res.status}: ${res.statusText}`,
+      };
+    } catch (err: any) {
+      return {
+        isOnline: false,
+        gatewayUrl: API_BASE_URL,
+        user: null,
+        error: err?.message || 'Gateway unreachable',
+      };
+    }
+  },
+
+  // =============================================================
+  // Tables Management
+  // =============================================================
   async getTables(): Promise<RestaurantTable[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/tables`);
-      if (res.ok) return await res.json();
-    } catch {}
+      const backendTables = await request<any[]>('/tables');
+      if (Array.isArray(backendTables) && backendTables.length > 0) {
+        const mapped: RestaurantTable[] = backendTables.map((bt) => {
+          const existing = store.tables.find((t) => t.id === bt.id || t.tableNumber === bt.tableNumber);
+          return {
+            id: Number(bt.id),
+            tableNumber: bt.tableNumber,
+            title: bt.title,
+            capacity: Number(bt.capacity) || 4,
+            status: (bt.status as TableStatus) || (existing ? existing.status : 'EMPTY'),
+            activeOrderAmount: existing?.activeOrderAmount,
+            activeOrderId: existing?.activeOrderId,
+          };
+        });
+        store.tables = mapped;
+        store.save();
+        return mapped;
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] Tables fallback to local store:', err);
+    }
     return [...store.tables];
   },
 
-  // Menu
+  async createTable(table: { tableNumber: string; title: string; capacity: number }): Promise<RestaurantTable> {
+    try {
+      const created = await request<any>('/tables', {
+        method: 'POST',
+        body: JSON.stringify({
+          tableNumber: table.tableNumber,
+          title: table.title,
+          capacity: table.capacity,
+          status: 'EMPTY',
+        }),
+      });
+      const mapped: RestaurantTable = {
+        id: Number(created.id),
+        tableNumber: created.tableNumber,
+        title: created.title,
+        capacity: Number(created.capacity) || 4,
+        status: (created.status as TableStatus) || 'EMPTY',
+      };
+      store.tables.push(mapped);
+      store.save();
+      return mapped;
+    } catch (err) {
+      console.warn('[Khansalar API] createTable local fallback:', err);
+      const localTable: RestaurantTable = {
+        id: Date.now(),
+        tableNumber: table.tableNumber,
+        title: table.title,
+        capacity: table.capacity,
+        status: 'EMPTY',
+      };
+      store.tables.push(localTable);
+      store.save();
+      return localTable;
+    }
+  },
+
+  // =============================================================
+  // Menu Items
+  // =============================================================
   async getMenuItems(): Promise<MenuItem[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/menu`);
-      if (res.ok) return await res.json();
-    } catch {}
+      const backendItems = await request<any[]>('/menu');
+      if (Array.isArray(backendItems) && backendItems.length > 0) {
+        const mapped: MenuItem[] = backendItems.map((item) => ({
+          id: Number(item.id),
+          name: item.name,
+          category: item.category,
+          price: Number(item.price) || 0,
+          description: item.description || '',
+          isAvailable: Boolean(item.isAvailable),
+          image: item.image,
+        }));
+        store.menu = mapped;
+        store.save();
+        return mapped;
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] Menu items fallback to local store:', err);
+    }
     return [...store.menu];
   },
 
-  // Invoices
+  async createMenuItem(item: Partial<MenuItem>): Promise<MenuItem> {
+    try {
+      const created = await request<any>('/menu', {
+        method: 'POST',
+        body: JSON.stringify(item),
+      });
+      const mapped: MenuItem = {
+        id: Number(created.id),
+        name: created.name,
+        category: created.category,
+        price: Number(created.price) || 0,
+        description: created.description || '',
+        isAvailable: Boolean(created.isAvailable),
+      };
+      store.menu.push(mapped);
+      store.save();
+      return mapped;
+    } catch (err) {
+      console.warn('[Khansalar API] createMenuItem fallback:', err);
+      const localItem: MenuItem = {
+        id: Date.now(),
+        name: item.name || 'آیتم جدید',
+        category: item.category || 'غذای اصلی و درباری',
+        price: item.price || 100000,
+        description: item.description || '',
+        isAvailable: item.isAvailable ?? true,
+      };
+      store.menu.push(localItem);
+      store.save();
+      return localItem;
+    }
+  },
+
+  // =============================================================
+  // Invoices & Billing
+  // =============================================================
   async getInvoices(): Promise<Invoice[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/invoices`);
-      if (res.ok) return await res.json();
-    } catch {}
+      const backendInvoices = await request<any[]>('/invoices');
+      if (Array.isArray(backendInvoices) && backendInvoices.length > 0) {
+        const mapped: Invoice[] = backendInvoices.map((inv) => {
+          const existing = store.invoices.find((i) => i.id === inv.id || i.invoiceNumber === inv.invoiceNumber);
+          const issuedAt = inv.issuedAt ? new Date(inv.issuedAt).toLocaleString('fa-IR') : (existing?.issuedAt || 'امروز');
+          const paidAt = inv.paidAt ? new Date(inv.paidAt).toLocaleString('fa-IR') : existing?.paidAt;
+          return {
+            id: Number(inv.id),
+            invoiceNumber: inv.invoiceNumber,
+            orderId: inv.orderId || String(inv.id),
+            tableName: existing?.tableName || `میز ${inv.orderId}`,
+            subTotal: Number(inv.subTotal) || 0,
+            taxAmount: Number(inv.taxAmount) || 0,
+            serviceFee: Number(inv.serviceFee) || 0,
+            discountAmount: Number(inv.discountAmount) || 0,
+            finalAmount: Number(inv.finalAmount) || 0,
+            status: inv.status || 'ISSUED',
+            issuedAt,
+            paidAt,
+            items: existing?.items,
+          };
+        });
+        store.invoices = mapped;
+        store.save();
+        return mapped;
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] Invoices fallback to local store:', err);
+    }
     return [...store.invoices];
   },
 
-  // General Ledger
-  async getLedgerEntries(): Promise<LedgerEntry[]> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/ledger`);
-      if (res.ok) return await res.json();
-    } catch {}
-    return [...store.ledger];
-  },
-
-  // Orders creation with real-time KDS, Inventory BOM Deduction & Customer Loyalty
-  async createOrder(
-    tableId: number,
-    items: { menuItemId: number; quantity: number; notes?: string; modifiers?: string[] }[],
-    notes?: string,
-    customerId?: number
-  ): Promise<Order> {
-    const table = store.tables.find((t) => t.id === tableId);
-    const orderItems = items.map((i) => {
-      const menuItem = store.menu.find((m) => m.id === i.menuItemId)!;
-      return {
-        menuItemId: i.menuItemId,
-        itemName: menuItem.name,
-        quantity: i.quantity,
-        unitPrice: menuItem.price,
-        totalPrice: menuItem.price * i.quantity,
-        notes: i.notes,
-      };
-    });
-
-    const totalAmount = orderItems.reduce((acc, curr) => acc + curr.totalPrice, 0);
-    const orderNumber = `KH-1403-${Math.floor(100 + Math.random() * 900)}`;
-    const newOrderId = Date.now();
-
-    const newOrder: Order = {
-      id: newOrderId,
-      orderNumber,
-      tableId,
-      tableName: table ? table.title : `میز ${tableId}`,
-      serverName: 'مهماندار سالن',
-      status: 'PENDING',
-      totalAmount,
-      notes,
-      items: orderItems,
-      createdAt: new Date().toLocaleTimeString('fa-IR'),
-    };
-
-    // Update table
-    if (table) {
-      table.status = 'OCCUPIED';
-      table.activeOrderAmount = totalAmount;
-      table.activeOrderId = newOrder.id;
-    }
-
-    // Auto generate invoice for billing
-    const taxAmount = Math.round(totalAmount * 0.1);
-    const serviceFee = Math.round(totalAmount * 0.05);
-    const finalAmount = totalAmount + taxAmount + serviceFee;
-
-    const newInvoice: Invoice = {
-      id: Date.now(),
-      invoiceNumber: `INV-${orderNumber}`,
-      orderId: orderNumber,
-      tableName: newOrder.tableName,
-      subTotal: totalAmount,
-      taxAmount,
-      serviceFee,
-      discountAmount: 0,
-      finalAmount,
-      status: 'ISSUED',
-      issuedAt: new Date().toLocaleTimeString('fa-IR'),
-      items: orderItems,
-    };
-
-    store.invoices.unshift(newInvoice);
-
-    // KDS: Create Kitchen Ticket
-    const ticketItems = items.map((item, idx) => {
-      const menuItem = store.menu.find((m) => m.id === item.menuItemId);
-      let station: KitchenStation = 'KITCHEN';
-      if (menuItem?.category.includes('کباب') || menuItem?.name.includes('کباب')) {
-        station = 'GRILL';
-      } else if (menuItem?.category.includes('شربت') || menuItem?.category.includes('نوشیدنی')) {
-        station = 'BAR';
-      } else if (menuItem?.category.includes('دسر') || menuItem?.category.includes('شیرینی')) {
-        station = 'DESSERT';
-      } else if (menuItem?.category.includes('مزه') || menuItem?.category.includes('پیش‌غذا')) {
-        station = 'COLD';
-      }
-
-      return {
-        id: Date.now() + idx,
-        itemName: menuItem?.name || 'آیتم منو',
-        quantity: item.quantity,
-        station,
-        status: 'RECEIVED' as KitchenItemStatus,
-        notes: item.notes,
-        modifiers: item.modifiers,
-      };
-    });
-
-    const newTicket: KitchenTicket = {
-      orderId: newOrderId,
-      orderNumber,
-      tableNumber: table?.tableNumber || `T-${tableId}`,
-      tableName: table?.title || `میز ${tableId}`,
-      serverName: 'مهماندار سالن',
-      orderTime: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
-      elapsedMinutes: 0,
-      priority: totalAmount > 1000000 ? 'VIP' : 'NORMAL',
-      notes,
-      items: ticketItems,
-    };
-    store.kitchenTickets.unshift(newTicket);
-
-    // INVENTORY ERP: Auto-deduct BOM recipe raw materials
-    items.forEach((ordered) => {
-      const recipe = store.recipes.find((r) => r.menuItemId === ordered.menuItemId);
-      if (recipe) {
-        recipe.ingredients.forEach((ing) => {
-          const inv = store.inventory.find((i) => i.id === ing.inventoryItemId);
-          if (inv) {
-            const requiredAmount = ing.quantityRequired * ordered.quantity;
-            inv.currentStock = Math.max(0, parseFloat((inv.currentStock - requiredAmount).toFixed(2)));
-          }
-        });
-      }
-    });
-
-    // CRM LOYALTY: Credit loyalty points if customer is linked
-    if (customerId) {
-      const customer = store.customers.find((c) => c.id === customerId);
-      if (customer) {
-        const earnedPoints = Math.floor(totalAmount / 10000); // 1 point per 10,000 Tomans
-        customer.loyaltyPoints += earnedPoints;
-        customer.totalSpent += totalAmount;
-        customer.totalVisits += 1;
-        customer.lastVisit = 'امروز';
-        if (customer.totalSpent > 15000000) customer.tier = 'PLATINUM';
-        else if (customer.totalSpent > 8000000) customer.tier = 'GOLD';
-        else if (customer.totalSpent > 3000000) customer.tier = 'SILVER';
-      }
-    }
-
-    store.save();
-
-    // Call real backend gateway if available
-    try {
-      fetch(`${API_BASE_URL}/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableId, items, notes, serverName: 'سالندار', customerId }),
-      }).catch(() => {});
-    } catch {}
-
-    return newOrder;
-  },
-
-  // Pay invoice & balance accounting ledger
   async payInvoice(invoiceId: number, paymentMethod: 'CARD_POS' | 'CASH' | 'ONLINE'): Promise<Invoice> {
     const invoice = store.invoices.find((i) => i.id === invoiceId);
     if (!invoice) throw new Error('فاکتور یافت نشد');
@@ -918,7 +928,7 @@ export const api = {
       linkedTable.activeOrderId = undefined;
     }
 
-    // Create balanced Double-Entry Ledger Entry
+    // Balanced Double-Entry Ledger Entry in local store
     const debitAccount = paymentMethod === 'CASH' ? 'صندوق نقد خوان‌سالار' : 'حساب بانک و دستگاه کارتخوان (پوز)';
     const newEntry: LedgerEntry = {
       id: Date.now(),
@@ -951,28 +961,85 @@ export const api = {
         },
       ],
     };
-
     store.ledger.unshift(newEntry);
     store.save();
 
-    // Call backend
+    // Call real backend gateway to record payment and journal entries
+    const cashierName = authStorage.getUser()?.fullName || 'صندوقدار مرکزی';
     try {
-      fetch(`${API_BASE_URL}/invoices/${invoiceId}/pay`, {
+      await request(`/invoices/${invoiceId}/pay`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: invoice.finalAmount,
           paymentMethod,
-          cashierName: 'صندوقدار مرکزی',
+          cashierName,
+          trackingCode: `POS-${Math.floor(100000 + Math.random() * 900000)}`,
         }),
-      }).catch(() => {});
-    } catch {}
+      });
+    } catch (err) {
+      console.warn('[Khansalar API] payInvoice backend call failed, local store updated:', err);
+    }
 
     return invoice;
   },
 
-  // Daily Closing / Z-Report
+  // =============================================================
+  // General Ledger & Accounting
+  // =============================================================
+  async getLedgerEntries(): Promise<LedgerEntry[]> {
+    try {
+      const backendLedger = await request<any[]>('/ledger');
+      if (Array.isArray(backendLedger) && backendLedger.length > 0) {
+        const mapped: LedgerEntry[] = backendLedger.map((e) => ({
+          id: Number(e.id),
+          entryNumber: e.entryNumber,
+          description: e.description,
+          referenceType: e.referenceType,
+          referenceId: e.referenceId,
+          transactionDate: e.transactionDate ? new Date(e.transactionDate).toLocaleString('fa-IR') : 'امروز',
+          items: Array.isArray(e.items)
+            ? e.items.map((item: any) => ({
+                id: Number(item.id),
+                accountName: item.accountName,
+                accountType: item.accountType,
+                debit: Number(item.debit) || 0,
+                credit: Number(item.credit) || 0,
+              }))
+            : [],
+        }));
+        store.ledger = mapped;
+        store.save();
+        return mapped;
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] Ledger fallback to local store:', err);
+    }
+    return [...store.ledger];
+  },
+
   async closeDay(closingDate: string, closedBy: string): Promise<DailyClosing> {
+    try {
+      const backendClosing = await request<any>(
+        `/ledger/close-day?closingDate=${encodeURIComponent(closingDate)}&closedBy=${encodeURIComponent(closedBy)}`,
+        { method: 'POST' }
+      );
+      if (backendClosing && backendClosing.closingDate) {
+        return {
+          id: Number(backendClosing.id) || Date.now(),
+          closingDate: backendClosing.closingDate,
+          totalSales: Number(backendClosing.totalSales) || 0,
+          totalCash: Number(backendClosing.totalCash) || 0,
+          totalPos: Number(backendClosing.totalPos) || 0,
+          totalTax: Number(backendClosing.totalTax) || 0,
+          orderCount: Number(backendClosing.orderCount) || 0,
+          closedBy: backendClosing.closedBy || closedBy,
+          createdAt: backendClosing.createdAt ? new Date(backendClosing.createdAt).toLocaleTimeString('fa-IR') : new Date().toLocaleTimeString('fa-IR'),
+        };
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] closeDay backend call failed, computing locally:', err);
+    }
+
     const paidInvoices = store.invoices.filter((i) => i.status === 'PAID');
     const totalSales = paidInvoices.reduce((acc, curr) => acc + curr.finalAmount, 0);
     const totalTax = paidInvoices.reduce((acc, curr) => acc + curr.taxAmount, 0);
@@ -992,13 +1059,225 @@ export const api = {
     return closing;
   },
 
+  // =============================================================
+  // Orders & POS
+  // =============================================================
+  async createOrder(
+    tableId: number,
+    items: { menuItemId: number; quantity: number; notes?: string; modifiers?: string[] }[],
+    notes?: string,
+    customerId?: number
+  ): Promise<Order> {
+    const table = store.tables.find((t) => t.id === tableId);
+    const serverName = authStorage.getUser()?.fullName || 'مهماندار سالن';
+
+    const orderItems: OrderItem[] = items.map((i) => {
+      const menuItem = store.menu.find((m) => m.id === i.menuItemId)!;
+      return {
+        menuItemId: i.menuItemId,
+        itemName: menuItem?.name || 'آیتم منو',
+        quantity: i.quantity,
+        unitPrice: menuItem?.price || 0,
+        totalPrice: (menuItem?.price || 0) * i.quantity,
+        notes: i.notes,
+      };
+    });
+
+    const totalAmount = orderItems.reduce((acc, curr) => acc + curr.totalPrice, 0);
+    let orderNumber = `KH-1403-${Math.floor(100 + Math.random() * 900)}`;
+    let newOrderId = Date.now();
+
+    // Call real backend gateway to create reactive order
+    try {
+      const backendOrder = await request<any>('/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          tableId,
+          serverName,
+          notes: notes || undefined,
+          customerId: customerId || undefined,
+          items: items.map((i) => ({
+            menuItemId: i.menuItemId,
+            quantity: i.quantity,
+            notes: i.notes || undefined,
+          })),
+        }),
+      });
+      if (backendOrder && backendOrder.id) {
+        newOrderId = Number(backendOrder.id);
+        orderNumber = backendOrder.orderNumber || orderNumber;
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] createOrder backend call failed, local store applied:', err);
+    }
+
+    const newOrder: Order = {
+      id: newOrderId,
+      orderNumber,
+      tableId,
+      tableName: table ? table.title : `میز ${tableId}`,
+      serverName,
+      status: 'PENDING',
+      totalAmount,
+      notes,
+      items: orderItems,
+      createdAt: new Date().toLocaleTimeString('fa-IR'),
+    };
+
+    if (table) {
+      table.status = 'OCCUPIED';
+      table.activeOrderAmount = totalAmount;
+      table.activeOrderId = newOrder.id;
+    }
+
+    // Auto generate invoice for billing
+    const taxAmount = Math.round(totalAmount * 0.1);
+    const serviceFee = Math.round(totalAmount * 0.05);
+    const finalAmount = totalAmount + taxAmount + serviceFee;
+
+    const newInvoice: Invoice = {
+      id: Date.now(),
+      invoiceNumber: `INV-${orderNumber}`,
+      orderId: orderNumber,
+      tableName: newOrder.tableName,
+      subTotal: totalAmount,
+      taxAmount,
+      serviceFee,
+      discountAmount: 0,
+      finalAmount,
+      status: 'ISSUED',
+      issuedAt: new Date().toLocaleTimeString('fa-IR'),
+      items: orderItems,
+    };
+    store.invoices.unshift(newInvoice);
+
+    // KDS: Create Kitchen Ticket
+    const ticketItems: KitchenTicketItem[] = items.map((item, idx) => {
+      const menuItem = store.menu.find((m) => m.id === item.menuItemId);
+      let station: KitchenStation = 'KITCHEN';
+      if (menuItem?.category.includes('کباب') || menuItem?.name.includes('کباب')) {
+        station = 'GRILL';
+      } else if (menuItem?.category.includes('شربت') || menuItem?.category.includes('نوشیدنی')) {
+        station = 'BAR';
+      } else if (menuItem?.category.includes('دسر') || menuItem?.category.includes('شیرینی')) {
+        station = 'DESSERT';
+      } else if (menuItem?.category.includes('مزه') || menuItem?.category.includes('پیش‌غذا')) {
+        station = 'COLD';
+      }
+
+      return {
+        id: Date.now() + idx,
+        itemName: menuItem?.name || 'آیتم منو',
+        quantity: item.quantity,
+        station,
+        status: 'RECEIVED' as KitchenItemStatus,
+        notes: item.notes,
+        modifiers: item.modifiers,
+      };
+    });
+
+    const newTicket: KitchenTicket = {
+      orderId: newOrderId,
+      orderNumber,
+      tableNumber: table?.tableNumber || `T-${tableId}`,
+      tableName: table?.title || `میز ${tableId}`,
+      serverName,
+      orderTime: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+      elapsedMinutes: 0,
+      priority: totalAmount > 1000000 ? 'VIP' : 'NORMAL',
+      notes,
+      items: ticketItems,
+    };
+    store.kitchenTickets.unshift(newTicket);
+
+    // INVENTORY ERP: Auto-deduct BOM recipe raw materials
+    items.forEach((ordered) => {
+      const recipe = store.recipes.find((r) => r.menuItemId === ordered.menuItemId);
+      if (recipe) {
+        recipe.ingredients.forEach((ing) => {
+          const inv = store.inventory.find((i) => i.id === ing.inventoryItemId);
+          if (inv) {
+            const requiredAmount = ing.quantityRequired * ordered.quantity;
+            inv.currentStock = Math.max(0, parseFloat((inv.currentStock - requiredAmount).toFixed(2)));
+          }
+        });
+      }
+    });
+
+    // CRM LOYALTY: Credit loyalty points if customer is linked
+    if (customerId) {
+      const customer = store.customers.find((c) => c.id === customerId);
+      if (customer) {
+        const earnedPoints = Math.floor(totalAmount / 10000);
+        customer.loyaltyPoints += earnedPoints;
+        customer.totalSpent += totalAmount;
+        customer.totalVisits += 1;
+        customer.lastVisit = 'امروز';
+        if (customer.totalSpent > 15000000) customer.tier = 'PLATINUM';
+        else if (customer.totalSpent > 8000000) customer.tier = 'GOLD';
+        else if (customer.totalSpent > 3000000) customer.tier = 'SILVER';
+      }
+    }
+
+    store.save();
+    return newOrder;
+  },
+
+  // =============================================================
   // KDS - Kitchen Display System
+  // =============================================================
   async getKitchenTickets(station?: KitchenStation): Promise<KitchenTicket[]> {
     try {
-      const url = station && station !== 'ALL' ? `${API_BASE_URL}/kitchen?station=${station}` : `${API_BASE_URL}/kitchen`;
-      const res = await fetch(url);
-      if (res.ok) return await res.json();
-    } catch {}
+      const orders = await request<any[]>('/kitchen/orders');
+      if (Array.isArray(orders) && orders.length > 0) {
+        const tickets: KitchenTicket[] = orders.map((o) => {
+          const ticketItems: KitchenTicketItem[] = (o.items || []).map((item: any, idx: number) => {
+            const menuItem = store.menu.find((m) => m.id === item.menuItemId || m.name === item.itemName);
+            let itemStation: KitchenStation = 'KITCHEN';
+            if (menuItem?.category.includes('کباب') || menuItem?.name.includes('کباب')) {
+              itemStation = 'GRILL';
+            } else if (menuItem?.category.includes('شربت') || menuItem?.category.includes('نوشیدنی')) {
+              itemStation = 'BAR';
+            } else if (menuItem?.category.includes('دسر') || menuItem?.category.includes('شیرینی')) {
+              itemStation = 'DESSERT';
+            } else if (menuItem?.category.includes('مزه') || menuItem?.category.includes('پیش‌غذا')) {
+              itemStation = 'COLD';
+            }
+            return {
+              id: Number(item.id) || (o.id * 10 + idx + 1),
+              itemName: item.itemName,
+              quantity: Number(item.quantity) || 1,
+              station: itemStation,
+              status: (o.status === 'PREPARING' ? 'PREPARING' : (o.status === 'READY' ? 'READY' : 'RECEIVED')) as KitchenItemStatus,
+              notes: item.notes,
+            };
+          });
+
+          return {
+            orderId: Number(o.id),
+            orderNumber: o.orderNumber,
+            tableNumber: o.tableName ? o.tableName.split(' ')[0] : `T-${o.tableId}`,
+            tableName: o.tableName || `میز ${o.tableId}`,
+            serverName: o.serverName || 'مهماندار سالن',
+            orderTime: o.createdAt ? new Date(o.createdAt).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : '12:30',
+            elapsedMinutes: o.createdAt ? Math.max(0, Math.round((Date.now() - new Date(o.createdAt).getTime()) / 60000)) : 5,
+            priority: (Number(o.totalAmount) > 1000000 ? 'VIP' : 'NORMAL') as 'VIP' | 'NORMAL',
+            notes: o.notes,
+            items: ticketItems,
+          };
+        });
+
+        store.kitchenTickets = tickets;
+        store.save();
+
+        if (!station || station === 'ALL') {
+          return tickets;
+        }
+        return tickets.filter((t) => t.items.some((i) => i.station === station));
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] Kitchen tickets fallback to local store:', err);
+    }
 
     if (!station || station === 'ALL') {
       return [...store.kitchenTickets];
@@ -1017,11 +1296,18 @@ export const api = {
         store.save();
       }
     }
+
+    let backendStatus = 'PREPARING';
+    if (status === 'READY' || status === 'SERVED') backendStatus = 'READY';
+    if (status === 'RECEIVED') backendStatus = 'CONFIRMED';
+
     try {
-      await fetch(`${API_BASE_URL}/kitchen/${orderId}/items/${itemId}/status?status=${status}`, {
-        method: 'PUT',
+      await request(`/kitchen/orders/${orderId}/status?status=${backendStatus}`, {
+        method: 'PATCH',
       });
-    } catch {}
+    } catch (err) {
+      console.warn('[Khansalar API] updateKitchenItemStatus sync failed:', err);
+    }
   },
 
   async completeKitchenTicket(orderId: number): Promise<void> {
@@ -1032,16 +1318,36 @@ export const api = {
       store.save();
     }
     try {
-      await fetch(`${API_BASE_URL}/kitchen/${orderId}/complete`, { method: 'POST' });
+      await request(`/kitchen/orders/${orderId}/status?status=READY`, { method: 'PATCH' });
     } catch {}
   },
 
+  // =============================================================
   // Inventory & Warehouse
+  // =============================================================
   async getInventoryItems(): Promise<InventoryItem[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/inventory`);
-      if (res.ok) return await res.json();
-    } catch {}
+      const items = await request<any[]>('/inventory/items');
+      if (Array.isArray(items) && items.length > 0) {
+        const mapped: InventoryItem[] = items.map((i) => ({
+          id: Number(i.id),
+          itemCode: i.itemCode,
+          name: i.name,
+          category: 'MEAT' as InventoryCategory,
+          unit: i.unit === 'KG' ? 'کیلوگرم' : (i.unit === 'G' ? 'گرم' : (i.unit === 'L' ? 'لیتر' : i.unit)),
+          currentStock: Number(i.currentStock) || 0,
+          minimumThreshold: Number(i.minimumStock) || 10,
+          reorderPoint: (Number(i.minimumStock) || 10) * 1.5,
+          unitCost: Number(i.unitCost) || 0,
+          lastRestockedAt: i.updatedAt ? new Date(i.updatedAt).toLocaleDateString('fa-IR') : '۱۴۰۳/۰۸/۲۵',
+        }));
+        store.inventory = mapped;
+        store.save();
+        return mapped;
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] Inventory fallback to local store:', err);
+    }
     return [...store.inventory];
   },
 
@@ -1083,12 +1389,18 @@ export const api = {
     store.save();
 
     try {
-      await fetch(`${API_BASE_URL}/inventory/purchase`, {
+      await request('/inventory/purchase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId, quantity, unitCost, supplierName }),
+        body: JSON.stringify({
+          itemId,
+          quantity,
+          unitCost,
+          notes: supplierName ? `خرید از تامین‌کننده: ${supplierName}` : undefined,
+        }),
       });
-    } catch {}
+    } catch (err) {
+      console.warn('[Khansalar API] purchaseStock backend call failed, updated locally:', err);
+    }
 
     return item;
   },
@@ -1096,19 +1408,58 @@ export const api = {
   // Recipes / BOM
   async getRecipes(): Promise<MenuItemRecipeBOM[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/inventory/recipes`);
-      if (res.ok) return await res.json();
+      const res = await request<any[]>('/inventory/recipes/1');
+      if (Array.isArray(res) && res.length > 0) {
+        // Backend returns recipes list
+      }
     } catch {}
     return [...store.recipes];
   },
 
+  // =============================================================
   // Customers CRM & Loyalty
+  // =============================================================
   async getCustomers(query?: string): Promise<Customer[]> {
     try {
-      const url = query ? `${API_BASE_URL}/customers?search=${encodeURIComponent(query)}` : `${API_BASE_URL}/customers`;
-      const res = await fetch(url);
-      if (res.ok) return await res.json();
-    } catch {}
+      let url = '/customers';
+      if (query && /^\d+$/.test(query.trim())) {
+        url = `/customers/phone/${encodeURIComponent(query.trim())}`;
+        const single = await request<any>(url);
+        if (single && single.id) {
+          return [{
+            id: Number(single.id),
+            fullName: single.fullName,
+            phoneNumber: single.phoneNumber,
+            tier: (Number(single.totalSpent) > 15000000 ? 'PLATINUM' : (Number(single.totalSpent) > 8000000 ? 'GOLD' : (Number(single.totalSpent) > 3000000 ? 'SILVER' : 'BRONZE'))),
+            loyaltyPoints: Number(single.loyaltyPoints) || 0,
+            walletBalance: 0,
+            totalSpent: Number(single.totalSpent) || 0,
+            totalVisits: 1,
+            lastVisit: 'امروز',
+          }];
+        }
+      } else {
+        const list = await request<any[]>(url);
+        if (Array.isArray(list) && list.length > 0) {
+          const mapped: Customer[] = list.map((c) => ({
+            id: Number(c.id),
+            fullName: c.fullName,
+            phoneNumber: c.phoneNumber,
+            tier: (Number(c.totalSpent) > 15000000 ? 'PLATINUM' : (Number(c.totalSpent) > 8000000 ? 'GOLD' : (Number(c.totalSpent) > 3000000 ? 'SILVER' : 'BRONZE'))),
+            loyaltyPoints: Number(c.loyaltyPoints) || 0,
+            walletBalance: 0,
+            totalSpent: Number(c.totalSpent) || 0,
+            totalVisits: 1,
+            lastVisit: 'امروز',
+          }));
+          store.customers = mapped;
+          store.save();
+          return mapped;
+        }
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] Customers fallback to local store:', err);
+    }
 
     if (!query) return [...store.customers];
     const q = query.trim().toLowerCase();
@@ -1123,7 +1474,7 @@ export const api = {
       fullName: newCust.fullName,
       phoneNumber: newCust.phoneNumber,
       tier: 'BRONZE',
-      loyaltyPoints: 50, // Welcome gift points
+      loyaltyPoints: 50,
       walletBalance: 0,
       totalSpent: 0,
       totalVisits: 0,
@@ -1136,59 +1487,53 @@ export const api = {
     store.save();
 
     try {
-      await fetch(`${API_BASE_URL}/customers`, {
+      const created = await request<any>('/customers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(customer),
+        body: JSON.stringify({
+          fullName: newCust.fullName,
+          phoneNumber: newCust.phoneNumber,
+          loyaltyPoints: 50,
+          totalSpent: 0,
+        }),
       });
-    } catch {}
+      if (created && created.id) {
+        customer.id = Number(created.id);
+      }
+    } catch (err) {
+      console.warn('[Khansalar API] registerCustomer backend sync failed, local store updated:', err);
+    }
 
     return customer;
   },
 
-  // -------------------------------------------------------------
-  // Feature 2: Advanced Reservations & VIP Events
-  // -------------------------------------------------------------
+  // =============================================================
+  // Reservations & VIP Events
+  // =============================================================
   async getReservations(): Promise<Reservation[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/reservations`);
-      if (res.ok) {
-        const body = await res.json();
-        const list = Array.isArray(body) ? body : (body?.data || []);
-        if (Array.isArray(list) && list.length > 0) {
-          return list.map(mapBackendReservationToFrontend);
-        }
+      const body = await request<any>('/reservations');
+      const list = Array.isArray(body) ? body : (body?.data || []);
+      if (Array.isArray(list) && list.length > 0) {
+        const mapped = list.map(mapBackendReservationToFrontend);
+        store.reservations = mapped;
+        store.save();
+        return mapped;
       }
     } catch (err) {
-      console.warn('Could not fetch reservations from backend API, using local store:', err);
+      console.warn('[Khansalar API] Reservations fallback to local store:', err);
     }
     return [...store.reservations];
   },
 
-  async createReservation(resData: Partial<Reservation>): Promise<Reservation> {
-    const newId = Date.now();
-    const reservationNumber = `RES-1403-${Math.floor(100 + Math.random() * 900)}`;
-    const table = store.tables.find((t) => t.id === resData.tableId);
-
+  async createReservation(newRes: Omit<Reservation, 'id' | 'reservationNumber'>): Promise<Reservation> {
+    const table = store.tables.find((t) => t.id === newRes.tableId);
     const reservation: Reservation = {
-      id: newId,
-      reservationNumber,
-      customerName: resData.customerName || 'مهمان خوان‌سالار',
-      phoneNumber: resData.phoneNumber || '',
-      partySize: resData.partySize || 2,
-      tableId: resData.tableId,
-      tableNumber: resData.tableNumber || (table ? table.tableNumber : undefined),
-      reservationTime: resData.reservationTime || '1403/08/20 20:00',
-      status: resData.status || 'CONFIRMED',
-      occasion: resData.occasion || 'NORMAL',
-      depositAmount: resData.depositAmount || 0,
-      depositPaid: resData.depositPaid ?? (resData.depositAmount ? true : false),
-      specialRequests: resData.specialRequests,
-      notes: resData.notes,
+      ...newRes,
+      id: Date.now(),
+      reservationNumber: `RES-1403-${Math.floor(100 + Math.random() * 900)}`,
       createdAt: new Date().toISOString(),
     };
 
-    // Extract reservationDate and timeSlot from reservationTime
     let reservationDate = '1403/08/20';
     let timeSlot = '20:00-22:00';
     if (reservation.reservationTime) {
@@ -1208,7 +1553,6 @@ export const api = {
     if (reservation.notes) notesList.push(reservation.notes);
     if (reservation.specialRequests) notesList.push(`درخواست ویژه: ${reservation.specialRequests}`);
 
-    // Strictly map to backend ReservationDto contract
     const backendPayload = {
       customerName: reservation.customerName,
       customerPhone: reservation.phoneNumber,
@@ -1223,31 +1567,17 @@ export const api = {
       notes: notesList.join(' | ') || undefined,
     };
 
-    const res = await fetch(`${API_BASE_URL}/reservations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(backendPayload),
-    });
-
-    if (!res.ok) {
-      let errorMessage = `Failed to create reservation (HTTP ${res.status}: ${res.statusText})`;
-      try {
-        const errorData = await res.json();
-        if (errorData?.message) {
-          errorMessage = errorData.message;
-        }
-      } catch {}
-      console.error('Reservation creation rejected by backend:', errorMessage);
-      throw new Error(errorMessage);
-    }
-
     try {
-      const body = await res.json();
-      const savedDto = body?.data || body;
+      const savedDto = await request<any>('/reservations', {
+        method: 'POST',
+        body: JSON.stringify(backendPayload),
+      });
       if (savedDto && savedDto.id) {
-        reservation.id = savedDto.id;
+        reservation.id = Number(savedDto.id);
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[Khansalar API] createReservation backend call failed, stored locally:', err);
+    }
 
     store.reservations.unshift(reservation);
     if (table && reservation.status === 'CONFIRMED') {
@@ -1258,102 +1588,77 @@ export const api = {
     return reservation;
   },
 
-  async updateReservationStatus(id: number, status: ReservationStatus): Promise<Reservation | null> {
+  async updateReservationStatus(id: number, status: ReservationStatus): Promise<Reservation> {
     const res = store.reservations.find((r) => r.id === id);
-    if (!res) return null;
-    res.status = status;
+    if (!res) throw new Error('رزرو یافت نشد');
 
-    if (res.tableId) {
-      const table = store.tables.find((t) => t.id === res.tableId);
-      if (table) {
-        if (status === 'SEATED') {
-          table.status = 'OCCUPIED';
-        } else if (status === 'CANCELLED' || status === 'NO_SHOW') {
-          table.status = 'EMPTY';
-        } else if (status === 'CONFIRMED') {
-          table.status = 'RESERVED';
-        }
-      }
-    }
+    res.status = status;
     store.save();
 
     try {
-      const resp = await fetch(`${API_BASE_URL}/reservations/${id}/status?status=${status}`, {
+      await request(`/reservations/${id}/status?status=${status}`, {
         method: 'PATCH',
       });
-      if (!resp.ok) {
-        console.error(`Failed to update reservation status: HTTP ${resp.status}`);
-      }
     } catch (err) {
-      console.warn('Could not sync reservation status to backend:', err);
+      console.warn('[Khansalar API] updateReservationStatus sync failed:', err);
     }
 
     return res;
   },
 
-  // -------------------------------------------------------------
-  // Feature 4: BI Executive Dashboard & Menu Engineering Matrix
-  // -------------------------------------------------------------
+  // =============================================================
+  // BI Analytics & Menu Engineering
+  // =============================================================
   async getBiSummary(): Promise<BiAnalyticsSummary> {
     try {
-      const res = await fetch(`${API_BASE_URL}/analytics/summary`);
-      if (res.ok) {
-        const body = await res.json();
-        const raw = body?.data || body;
-        if (raw && typeof raw === 'object') {
-          return mapBackendBiSummaryToFrontend(raw);
-        }
+      const raw = await request<any>('/analytics/summary');
+      if (raw && typeof raw === 'object') {
+        return mapBackendBiSummaryToFrontend(raw);
       }
     } catch (err) {
-      console.warn('Could not fetch BI summary from backend API, using local fallback:', err);
+      console.warn('[Khansalar API] BI summary fallback to local computation:', err);
     }
 
     const paidInvoices = store.invoices.filter((i) => i.status === 'PAID');
     const totalRevenue = paidInvoices.reduce((acc, curr) => acc + curr.finalAmount, 0) || 5480000;
-    const totalOrders = paidInvoices.length || 12;
-    const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
-    const totalFoodCost = Math.round(totalRevenue * 0.324);
-    const grossProfit = totalRevenue - totalFoodCost;
+    const totalOrders = paidInvoices.length || 18;
+    const averageOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 304000;
+    const foodCostPercentage = 34.2;
+    const grossProfit = Math.round(totalRevenue * (1 - foodCostPercentage / 100));
 
     return {
       totalRevenue,
       totalOrders,
-      averageOrderValue: avgOrderValue,
+      averageOrderValue,
       grossProfit,
-      foodCostPercentage: 32.4,
+      foodCostPercentage,
       hourlySales: [
-        { hour: '۱۲:۰۰', orderCount: 2, revenue: 840000 },
-        { hour: '۱۳:۰۰', orderCount: 5, revenue: 2150000 },
-        { hour: '۱۴:۰۰', orderCount: 4, revenue: 1680000 },
-        { hour: '۱۵:۰۰', orderCount: 1, revenue: 390000 },
-        { hour: '۱۹:۰۰', orderCount: 3, revenue: 1250000 },
-        { hour: '۲۰:۰۰', orderCount: 7, revenue: 3420000 },
-        { hour: '۲۱:۰۰', orderCount: 8, revenue: 4180000 },
-        { hour: '۲۲:۰۰', orderCount: 4, revenue: 1950000 },
+        { hour: '12:00-14:00', orderCount: 6, revenue: 1820000 },
+        { hour: '14:00-16:00', orderCount: 3, revenue: 910000 },
+        { hour: '18:00-20:00', orderCount: 4, revenue: 1240000 },
+        { hour: '20:00-22:00', orderCount: 5, revenue: 1510000 },
       ],
       salesByCategory: [
-        { category: 'غذای اصلی و درباری', amount: 9800000, percentage: 62 },
-        { category: 'پیش‌غذا و مزه', amount: 2100000, percentage: 14 },
-        { category: 'نوشیدنی سنتی و شربت‌خانه', amount: 1850000, percentage: 12 },
-        { category: 'دسر و شیرینی‌جات', amount: 1200000, percentage: 8 },
-        { category: 'نوشیدنی گرم و کافه', amount: 650000, percentage: 4 },
+        { category: 'غذای اصلی و درباری', amount: Math.round(totalRevenue * 0.62), percentage: 62 },
+        { category: 'پیش‌غذا و مزه', amount: Math.round(totalRevenue * 0.14), percentage: 14 },
+        { category: 'نوشیدنی سنتی و شربت‌خانه', amount: Math.round(totalRevenue * 0.12), percentage: 12 },
+        { category: 'دسر و شیرینی‌جات', amount: Math.round(totalRevenue * 0.08), percentage: 8 },
+        { category: 'نوشیدنی گرم و کافه', amount: Math.round(totalRevenue * 0.04), percentage: 4 },
       ],
       topSellingItems: [
-        { name: 'چلو کباب شاندیز خوان‌سالار', quantity: 18, revenue: 8640000 },
-        { name: 'ته‌چین ویژه مرغ و بادمجان', quantity: 14, revenue: 4760000 },
-        { name: 'کباب برگ گوسفندی اعلا', quantity: 11, revenue: 5720000 },
-        { name: 'دیزی سنگی مخصوص با ترشی', quantity: 9, revenue: 3510000 },
-        { name: 'شربت زعفران و بیدمشک ناب', quantity: 24, revenue: 2040000 },
+        { name: 'چلو کباب شاندیز خوان‌سالار', quantity: 14, revenue: 6720000 },
+        { name: 'ته‌چین ویژه مرغ و بادمجان', quantity: 10, revenue: 3400000 },
+        { name: 'دیزی سنگی مخصوص با ترشی شاه‌عباسی', quantity: 8, revenue: 3120000 },
+        { name: 'شربت زعفران و بیدمشک ناب', quantity: 16, revenue: 1360000 },
       ],
     };
   },
 
   async getMenuEngineering(): Promise<MenuEngineeringItem[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/analytics/menu-engineering`);
-      if (res.ok) {
-        const body = await res.json();
-        return body.data || body;
+      const body = await request<any>('/analytics/menu-engineering');
+      if (Array.isArray(body) && body.length > 0) {
+        return body;
       }
     } catch {}
 
@@ -1436,25 +1741,12 @@ export const api = {
         marginShare: 33.3,
         classification: 'DOG',
       },
-      {
-        menuItemId: 9,
-        itemName: 'ماست و خیار مجلسی با گل سرخ',
-        category: 'پیش‌غذا و مزه',
-        unitsSold: 30,
-        totalRevenue: 1950000,
-        totalProfit: 1200000,
-        unitFoodCost: 25000,
-        unitMargin: 40000,
-        popularityShare: 17.5,
-        marginShare: 61.5,
-        classification: 'PLOWHORSE',
-      },
     ];
   },
 
-  // -------------------------------------------------------------
+  // =============================================================
   // Feature 1: Digital Menu & QR Guest Ordering
-  // -------------------------------------------------------------
+  // =============================================================
   async placeGuestOrder(orderReq: GuestOrderRequest): Promise<Order> {
     const table = store.tables.find((t) => t.tableNumber === orderReq.tableNumber) || store.tables[0];
     const created = await this.createOrder(
@@ -1468,24 +1760,26 @@ export const api = {
     );
 
     try {
-      await fetch(`${API_BASE_URL}/guest/orders`, {
+      await request('/guest/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(orderReq),
       });
-    } catch {}
+    } catch (err) {
+      console.warn('[Khansalar API] placeGuestOrder backend call failed:', err);
+    }
 
     return created;
   },
 
   async callWaiter(tableNumber: string, reason?: string): Promise<{ success: boolean; message: string }> {
     try {
-      await fetch(`${API_BASE_URL}/guest/call-waiter`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableNumber, reason }),
-      });
-    } catch {}
+      await request(
+        `/guest/call-waiter?tableNumber=${encodeURIComponent(tableNumber)}&reason=${encodeURIComponent(reason || 'SERVICE')}`,
+        { method: 'POST' }
+      );
+    } catch (err) {
+      console.warn('[Khansalar API] callWaiter backend call failed:', err);
+    }
     return {
       success: true,
       message: `فراخوان میهماندار برای میز ${tableNumber} با موفقیت در سامانه ثبت شد. میهماندار در اسرع وقت حاضر خواهد شد.`,

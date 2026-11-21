@@ -9,8 +9,9 @@ import { InventoryView } from './components/InventoryView';
 import { CustomersView } from './components/CustomersView';
 import { ReservationView } from './components/ReservationView';
 import { AnalyticsBiView } from './components/AnalyticsBiView';
+import { LoginModal } from './components/LoginModal';
 import { api } from './services/api';
-import type { RestaurantTable, MenuItem, Invoice, LedgerEntry, DailyClosing } from './types';
+import type { RestaurantTable, MenuItem, Invoice, LedgerEntry, DailyClosing, BackendStatus } from './types';
 import { soundManager } from './utils/soundEffects';
 import { ShamsehStar } from './components/GirihOrnament';
 
@@ -23,6 +24,8 @@ export const App: React.FC = () => {
   const [posTableId, setPosTableId] = useState<number | undefined>(undefined);
   const [invoiceFilterTable, setInvoiceFilterTable] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const [isLoginOpen, setIsLoginOpen] = useState<boolean>(false);
 
   // ERP Badges
   const [kdsCount, setKdsCount] = useState<number>(0);
@@ -32,6 +35,10 @@ export const App: React.FC = () => {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Check backend gateway connection and auto-authenticate if needed
+      const status = await api.checkBackendStatus();
+      setBackendStatus(status);
+
       const [t, m, inv, led, tickets, inventory, reservations] = await Promise.all([
         api.getTables(),
         api.getMenuItems(),
@@ -152,6 +159,8 @@ export const App: React.FC = () => {
         lowStockCount={lowStockCount}
         reservationCount={reservationCount}
         isLoading={isLoading}
+        backendStatus={backendStatus}
+        onOpenLogin={() => setIsLoginOpen(true)}
         onRefresh={() => {
           soundManager.playClick();
           loadData();
@@ -226,6 +235,19 @@ export const App: React.FC = () => {
           <span className="text-slate-500 hidden sm:inline">طراحی بومی ایرانی • نقوش شاه‌عباسی و شمسه</span>
         </div>
       </footer>
+
+      {/* Gateway Authentication & Connection Switcher Modal */}
+      <LoginModal
+        isOpen={isLoginOpen}
+        onClose={() => setIsLoginOpen(false)}
+        onLoginSuccess={(user) => {
+          setBackendStatus((prev) =>
+            prev ? { ...prev, isOnline: true, user } : { isOnline: true, gatewayUrl: '/api/v1', user }
+          );
+          loadData();
+        }}
+        backendStatus={backendStatus}
+      />
     </div>
   );
 };
