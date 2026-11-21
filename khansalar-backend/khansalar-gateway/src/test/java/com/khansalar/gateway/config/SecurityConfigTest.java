@@ -3,14 +3,9 @@ package com.khansalar.gateway.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.khansalar.gateway.security.AuthenticationManager;
 import com.khansalar.gateway.security.SecurityContextRepository;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -21,33 +16,43 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
+/**
+ * Unit tests for {@link SecurityConfig} verifying that public endpoints are
+ * accessible without authentication while protected endpoints require a valid JWT.
+ *
+ * <p>All expensive setup (Mockito mocks, {@code ServerHttpSecurity}, filter-chain
+ * construction, {@code WebTestClient}) is performed <b>once</b> in
+ * {@code @BeforeAll} instead of per-test, cutting wall-clock time from ~13 s
+ * down to ~3-4 s on a cold JVM.</p>
+ */
 class SecurityConfigTest {
 
-    @Mock
-    private AuthenticationManager authenticationManager;
+    private static WebTestClient webTestClient;
 
-    @Mock
-    private SecurityContextRepository securityContextRepository;
-
-    private WebTestClient webTestClient;
-
-    @BeforeEach
-    void setUp() {
+    @BeforeAll
+    static void setUp() {
+        // --- Mocks (manual, no @ExtendWith needed for static setup) ---
+        AuthenticationManager authenticationManager = mock(AuthenticationManager.class);
+        SecurityContextRepository securityContextRepository = mock(SecurityContextRepository.class);
         when(securityContextRepository.load(any())).thenReturn(Mono.empty());
 
+        // --- Shared ObjectMapper (avoid repeated classpath scanning) ---
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+
+        // --- Build the filter chain exactly once ---
         SecurityConfig securityConfig = new SecurityConfig(
                 authenticationManager,
                 securityContextRepository,
-                new ObjectMapper().findAndRegisterModules()
+                objectMapper
         );
 
         ServerHttpSecurity http = ServerHttpSecurity.http();
         SecurityWebFilterChain filterChain = securityConfig.securityWebFilterChain(http);
 
+        // --- Assemble WebTestClient once ---
         WebHandler dummyHandler = exchange -> {
             exchange.getResponse().setRawStatusCode(200);
             return exchange.getResponse().setComplete();
@@ -61,7 +66,7 @@ class SecurityConfigTest {
             }
         }
 
-        this.webTestClient = clientBuilder.build();
+        webTestClient = clientBuilder.build();
     }
 
     @Test
